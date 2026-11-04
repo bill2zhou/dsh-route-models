@@ -33,6 +33,11 @@ import type { LobsteraiAuth } from './lobsterai-auth.js'
 import type { QoderAuth } from './qoder-auth.js'
 import type { TraeAuth } from './trae-auth.js'
 import type { ClineAuth } from './cline-auth.js'
+import type { CodeArtsAuth } from './service.js'
+import type { CodeArtsCredential } from './types.js'
+import type { BuddyAuth } from './buddy-auth.js'
+import type { BuddyCredential } from './types.js'
+import { CODEBUDDY, WORKBUDDY } from './product.js'
 import { LOOMY } from './loomy-product.js'
 import { creditExpiringWindowDays } from './credit-expiry-window.js'
 import type { LoomyAuth } from './loomy-auth.js'
@@ -738,6 +743,15 @@ export interface ChannelPackRpcConfig {
  * `inject`，因此在 headless / CLI profile 下本模块正常加载、只是不注册端点，
  * 而不是把整个插件树卡在 pending（那会让 profile 启动直接失败）。
  */
+/** 解析 CodeArts 凭据 JSON；解析失败返回 undefined。 */
+function parseCodeArtsCredential(raw: string): CodeArtsCredential | undefined {
+  try {
+    return JSON.parse(raw) as CodeArtsCredential
+  } catch {
+    return undefined
+  }
+}
+
 export function registerChannelPackRpc(
   ctx: Context,
   pool: AccountPool,
@@ -761,6 +775,11 @@ export function registerChannelPackRpc(
    * 才不用逐个补占位。
    */
   gemini: GeminiAuth,
+  /** CodeArts（华为云）实例：回调式 OAuth 登录（本地回调服务器收授权码）。 */
+  codearts: CodeArtsAuth,
+  /** CodeBuddy（buddy）与 WorkBuddy（workbuddy）实例：同协议、不同 product。 */
+  buddy: BuddyAuth,
+  workbuddy: BuddyAuth,
   /**
    * provider → 适配器实例（可选）。
    *
@@ -774,7 +793,7 @@ export function registerChannelPackRpc(
   ctx.inject(['connection'], (connectionCtx) => {
     registerChannelPackEndpoints(
       connectionCtx as Context, pool, lobsterai,
-      qoder, qoderCn, trae, cline, loomy, raccoon, minimax, zcode, gemini, modelAdapters, config,
+      qoder, qoderCn, trae, cline, loomy, raccoon, minimax, zcode, gemini, codearts, buddy, workbuddy, modelAdapters, config,
     )
   })
 }
@@ -884,6 +903,9 @@ function registerChannelPackEndpoints(
   minimax: MinimaxAuth,
   zcode: ZcodeAuth,
   gemini: GeminiAuth,
+  codearts: CodeArtsAuth,
+  buddy: BuddyAuth,
+  workbuddy: BuddyAuth,
   modelAdapters?: Readonly<Record<string, ModelCatalogSource>>,
   config: ChannelPackRpcConfig = {},
 ): void {
@@ -1390,6 +1412,62 @@ if (provider === LOBSTERAI.id) {
             })
           }).catch((error: unknown) => {
             ctx.logger.warn(`[channel-pack] background ${TRAE.id} login failed for ${id}: ${String(error)}`)
+            // 登录失败：移除占位条目，避免留下无凭据的幽灵账号
+            void pool.removeAccount(id).catch(() => {})
+          })
+          return { ok: true, value: { accountId: id, loginUrl: started.loginUrl } }
+        } else if (provider === CODEBUDDY.id || provider === WORKBUDDY.id) {
+          // buddy 系（CodeBuddy / WorkBuddy）是 **external-link-v2 轮询式**登录：
+          // `runBuddyLoginFlow` 内部自己 spawn 打开器拉起浏览器，所以前端拿不到
+          // 也不需要 `loginUrl` —— 返回空串，前端只轮询等账号出现即可。
+          //
+          // ⚠️ 登录成功时账号由 `login()` 自动登记（传 accountId + pool），故这里
+          // **不预登记占位条目**，否则会撞「账号已存在」。失败时该条目从未被创建，
+          // removeAccount 只是兜底（幂等）。
+          const auth = provider === WORKBUDDY.id ? workbuddy : buddy
+          void auth.login({ refName, accountId: id, pool })
+            .then(() => {
+              // 账号已在 login() 内登记（含昵称/有效期/refreshable）。
+            })
+            .catch((error: unknown) => {
+              ctx.logger.warn(`[channel-pack] background ${provider} login failed for ${id}: ${String(error)}`)
+              // 登录失败：删掉可能已登记的条目，避免留下无凭据的幽灵账号
+              void pool.removeAccount(id).catch(() => {})
+            })
+          return { ok: true, value: { accountId: id, loginUrl: '' } }
+        } else if (provider === 'codearts') {
+          // CodeArts 也是**回调式**登录（本地回调服务器收授权码），同样必须走两步式：
+          // 先返回 loginUrl 让前端立刻 window.open，后台再等回调。
+          //
+          // 为什么不能像早期那样 await 整个流程（真实缺陷）：浏览器只在用户点击后的
+          // 短暂窗口（transient activation，约 5 秒）内允许 window.open。阻塞数十秒后
+          // 才返回 URL，弹窗必被拦截并返回 null，前端兜底逻辑便执行
+          // `window.location.href = loginUrl`，把整个设置页跳走。
+          const started = await codearts.startLogin({ refName })
+          // 先登记启用的占位条目（无凭据），使前端 login.poll 能立即看到该账号；
+          // 登录成功后再回填昵称/有效期等真实字段。
+          await pool.addAccount({
+            id,
+            provider: 'codearts',
+            nickname: id,
+            enabled: true,
+            credentialRef: refName,
+            refreshable: false,
+            createdAt: Date.now(),
+          })
+          started.result.then(async (loginResult) => {
+            const credential = parseCodeArtsCredential(loginResult.access)
+            await pool.updateAccount(id, {
+              nickname: credential?.user_name !== undefined && credential.user_name.length > 0
+                ? credential.user_name
+                : id,
+              expiresAt: credential?.expires_at !== undefined
+                ? (Number.isNaN(Date.parse(credential.expires_at)) ? undefined : Date.parse(credential.expires_at))
+                : undefined,
+              refreshable: Boolean(credential?.refresh_token),
+            })
+          }).catch((error: unknown) => {
+            ctx.logger.warn(`[channel-pack] background codearts login failed for ${id}: ${String(error)}`)
             // 登录失败：移除占位条目，避免留下无凭据的幽灵账号
             void pool.removeAccount(id).catch(() => {})
           })

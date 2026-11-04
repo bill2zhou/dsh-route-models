@@ -6,6 +6,12 @@ import { registerLobsteraiLlm } from './lobsterai-adapter.js'
 import { registerQoderLlm } from './qoder-adapter.js'
 import { registerTraeLlm } from './trae-adapter.js'
 import { registerClineLlm } from './cline-adapter.js'
+import { registerCodeArtsLlm } from './llm-adapter.js'
+import { registerBuddyLlm } from './buddy-adapter.js'
+import { CODEARTS_CREDENTIAL_REF, CodeArtsAuth } from './service.js'
+import { BUDDY_CREDENTIAL_REF, BuddyAuth, createPoolRefresh } from './buddy-auth.js'
+import { CODEBUDDY, WORKBUDDY } from './product.js'
+import type { CodeArtsCredential, BuddyCredential } from './types.js'
 import { registerLoomyLlm, parseLoomyRemoteModels } from './loomy-adapter.js'
 import { registerRaccoonLlm } from './raccoon-adapter.js'
 import { LobsteraiAuth } from './lobsterai-auth.js'
@@ -655,6 +661,63 @@ export function apply(ctx: Context, config: { disableOpencode?: boolean; outlet?
     // 「请求记录」的账号归属（见上面的 `activeClineAccountId`）。
     currentAccountId: () => activeClineAccountId.length > 0 ? activeClineAccountId : undefined,
     product: CLINE,
+  })
+
+  // ===== CodeArts（华为云）服务 =====
+  // 浏览器 OAuth（PKCE）+ 账号池。登录、状态与续期统一在渠道包设置页完成，
+  // 不注册斜杠命令（与其余 provider 同一约定）。
+  const codearts = new CodeArtsAuth(ctx)
+  const codeartsAdapter = registerCodeArtsLlm(ctx, {
+    credentialRef: credentialRef(CODEARTS_CREDENTIAL_REF),
+    resolveCredential: async () => {
+      // 只认账号池：登录入口只有设置页，凭据一律写 CODEARTS_ACCOUNT_XXX。
+      const available = await pool.getAvailableAccount('codearts', '')
+      return available?.credential as CodeArtsCredential | undefined
+    },
+    // 续期刷账号池里实际使用的那个账号，而不是已废弃的单凭据 ref。
+    refresh: async () => {
+      const available = await pool.getAvailableAccount('codearts', '')
+      if (available) await codearts.refreshAccountCredential(available.entry.credentialRef, pool, available.entry.id)
+    },
+    fetchRemoteModels: () => codearts.refreshModels(pool),
+    accountPool: pool,
+  })
+
+  // ===== CodeBuddy / WorkBuddy（腾讯两端）服务 =====
+  // 两端同源同协议，差异全部由 product 配置承载；服务名依 product.id 派生，
+  // 分别注册为 ctx.buddyAuth / ctx.workbuddyAuth，互不覆盖。
+  // 同样不注册斜杠命令：入口在渠道包的对应面板。
+  const buddy = new BuddyAuth(ctx)
+  const buddyAdapter = registerBuddyLlm(ctx, {
+    credentialRef: credentialRef(CODEBUDDY.defaultCredentialRef),
+    resolveCredential: async (modelId?: string) => {
+      // 只从 CodeBuddy 自己的账号池取，回退到自己的单凭据 ref，绝不串用对端凭据。
+      // ⚠️ modelId 必须透传：限流按模型记（modelRateLimits[model]）。
+      const available = await pool.getAvailableAccount(CODEBUDDY.id, modelId ?? '')
+      if (available) return available.credential as BuddyCredential
+      const resolved = await ctx.credentials.resolve(credentialRef(CODEBUDDY.defaultCredentialRef))
+      if (!resolved) return undefined
+      try { return JSON.parse(resolved.value) as BuddyCredential } catch { return undefined }
+    },
+    refresh: createPoolRefresh(pool, CODEBUDDY.id, buddy),
+    fetchRemoteModels: () => buddy.fetchModels(pool),
+    accountPool: pool,
+    product: CODEBUDDY,
+  })
+  const workbuddy = new BuddyAuth(ctx, { product: WORKBUDDY })
+  const workbuddyAdapter = registerBuddyLlm(ctx, {
+    credentialRef: credentialRef(WORKBUDDY.defaultCredentialRef),
+    resolveCredential: async (modelId?: string) => {
+      const available = await pool.getAvailableAccount(WORKBUDDY.id, modelId ?? '')
+      if (available) return available.credential as BuddyCredential
+      const resolved = await ctx.credentials.resolve(credentialRef(WORKBUDDY.defaultCredentialRef))
+      if (!resolved) return undefined
+      try { return JSON.parse(resolved.value) as BuddyCredential } catch { return undefined }
+    },
+    refresh: createPoolRefresh(pool, WORKBUDDY.id, workbuddy),
+    fetchRemoteModels: () => workbuddy.fetchModels(pool),
+    accountPool: pool,
+    product: WORKBUDDY,
   })
 
   // ===== Loomy（讯飞办公助手）服务 =====
@@ -1665,7 +1728,7 @@ const zcodeAdapter = registerZcodeLlm(ctx, {
   // 丢的却是「下一轮工具调用能不能带上签名」。
   ctx.effect(() => () => { void geminiSigStore.flush().catch(() => {}) })
 
-  registerChannelPackRpc(ctx, pool, lobsterai, qoder, qoderCn, trae, cline, loomy, raccoon, minimax, zcode, gemini, modelAdapters, {
+  registerChannelPackRpc(ctx, pool, lobsterai, qoder, qoderCn, trae, cline, loomy, raccoon, minimax, zcode, gemini, codearts, buddy, workbuddy, modelAdapters, {
     ...config,
   })
   // 网关是旁路功能：这里传 `pool` 只为读设置页里的开关，其内部任何失败都已
