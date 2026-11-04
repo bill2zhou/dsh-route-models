@@ -61002,6 +61002,18 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
           });
           return { ok: true, value: { accountId: id, loginUrl: started.loginUrl } };
         } else if (provider === LOOMY.id) {
+          // Loomy 走**短信验证码**登录，不再是微信扫码：`account.create` 只登记占位
+          // 账号并回 `loginMode:'sms'`，手机号与验证码由前端表单收集后分别交给
+          // `login.sendSms` / `login.submitSms`（见本文件下方两个 case，它们直接打
+          // `/login/phone/*`，不碰微信 `rcode`）。
+          //
+          // ⚠️ **顺序死锁**：早期实现要求 `account.create` 必须带 phone，而表单要等
+          // 它返回 `loginMode:'sms'` 才渲染 —— 用户没机会输入手机号，表单永远出不来。
+          // 故这里**绝不**接收或校验 phone：create 只负责占位，手机号由
+          // `login.sendSms` 自己收。
+          //
+          // ⚠️ 先登记**占位条目**（无凭据），前端拿得到 accountId 才能提交验证码；
+          // 成功后由 `login.submitSms` 回填昵称与有效期。
           await pool.addAccount({
             id,
             provider: LOOMY.id,
@@ -61011,32 +61023,8 @@ function registerChannelPackEndpoints(ctx, pool, codearts, buddy, workbuddy, lob
             refreshable: false,
             createdAt: Date.now()
           });
-          let started;
-          try {
-            started = await loomy.startWechatLogin();
-          } catch (error) {
-            void pool.removeAccount(id).catch(() => {
-            });
-            const reason = error instanceof Error ? error.message : String(error);
-            throw new Error(`\u65E0\u6CD5\u542F\u52A8 Loomy \u5FAE\u4FE1\u767B\u5F55\uFF08\u83B7\u53D6\u4E8C\u7EF4\u7801\u5931\u8D25\uFF09\uFF1A${reason}`);
-          }
-          started.result.then(async (login) => {
-            const result = await loomy.persistWechatLogin(login, { refName });
-            const credential = JSON.parse(result.access);
-            await pool.updateAccount(id, {
-              // 用手机号尾号让多账号可区分（Loomy 无独立昵称接口；
-              // 微信昵称可能有，优先用它）。
-              nickname: login.nickname !== void 0 && login.nickname.length > 0 ? login.nickname : credential.phone.length >= 4 ? `Loomy ${credential.phone.slice(-4)}` : id,
-              expiresAt: result.expires > 0 ? result.expires : void 0,
-              // ⚠️ 恒 false：Loomy 无续期端点。
-              refreshable: false
-            });
-          }).catch((error) => {
-            ctx.logger.warn(`[channel-pack] background ${LOOMY.id} wechat login failed for ${id}: ${String(error)}`);
-            void pool.removeAccount(id).catch(() => {
-            });
-          });
-          return { ok: true, value: { accountId: id, loginUrl: started.loginUrl } };
+          // `loginUrl` 留空串：短信模式没有可打开的页面，前端据此渲染表单。
+          return { ok: true, value: { accountId: id, loginUrl: "", loginMode: "sms" } };
         } else if (provider === RACCOON.id) {
           await pool.addAccount({
             id,

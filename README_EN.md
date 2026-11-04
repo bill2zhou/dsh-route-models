@@ -51,7 +51,7 @@ Each card is one platform's account system:
 | Qoder | Alibaba | browser | claim |
 | Qoder (CN) | Alibaba | browser | claim |
 | TRAE | ByteDance | browser | claim |
-| Loomy | iFlytek | browser (WeChat QR, SMS fallback) | claim |
+| Loomy | iFlytek | SMS code | claim |
 | Raccoon | SenseTime | browser | — |
 | MiniMax Code | MiniMax | browser (device code + PKCE) | claim + status |
 | ZCode | Zhipu | browser | claim (token unit) |
