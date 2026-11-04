@@ -32720,8 +32720,19 @@ function isQueueError(status, body) {
   return status === 400 && (body.includes("TM.00001041") || /peak\s+usage|try\s+again\s+after|peak\s+hours/i.test(body) || /high\s+demand|too\s+many\s+requests/i.test(body));
 }
 function isAuthError(status, body) {
+  // 业务码优先于状态码：403 也可能来自后端自身的拒绝而非网关鉴权。
+  // 实测（2026-11-04）`HTTP 403 + TM.00000001「网络繁忙，请稍后重试」`：
+  // 这是服务端拥塞，不是凭据问题。按鉴权失败处理会白白消耗一次
+  // refresh_token（华为续期会作废旧 security_token），刷新后凭据其实
+  // 没变、结果仍是 403 —— 用户只看到一句「无法确认」而账号被无谓轮换。
+  if (/TM\.\d{8}/.test(body)) return false;
   if (status === 401 || status === 403) return true;
   return body.includes("APIG.0602") || /invalid\s+token|token\s+expired|token\s+is\s+invalid/i.test(body);
+}
+/** 服务端瞬时拥塞（TM.00000001），可短退避重试，但不进 30 分钟的排队循环。 */
+function isServerBusy(status, body) {
+  if (status !== 403 && status !== 429 && status < 500) return false;
+  return body.includes("TM.00000001") || /\u7F51\u7EDC\u7E41\u5FD9|network\s+busy|service\s+busy|server\s+busy/i.test(body);
 }
 function isSseQueueErrorCode(code) {
   return code === "TM.00001041" || /81111|TPM|(^|[^0-9])429([^0-9]|$)|rate.?limit|too many requests|排队|限流/i.test(code);
