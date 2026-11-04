@@ -1431,18 +1431,19 @@ if (provider === LOBSTERAI.id) {
           })
           return { ok: true, value: { accountId: id, loginUrl: started.loginUrl } }
         } else if (provider === LOOMY.id) {
-          // Loomy 走**微信扫码**登录（与其余 provider 同为「两步式」）：
-          // 起本地服务器承载弹窗页（内联二维码 + 轮询 + 首次绑手机号表单），
-          // 立即返回 `loginUrl` 让前端 `window.open`。
+          // Loomy 走**短信验证码**登录，不再是微信扫码：
+          // `account.create` 只登记占位账号并回 `loginMode:'sms'`，手机号与验证码
+          // 由前端表单收集后分别交给 `login.sendSms` / `login.submitSms`
+          // （见本文件下方两个 case，它们直接打 `/login/phone/*`，不碰微信 `rcode`）。
           //
-          // ⚠️ **真实缺陷**（用户报障「新建账号失败：Loomy 短信登录需要手机号」）：
-          // 早期实现要求 `account.create` **必须带 phone**，但表单要等它返回
-          // `loginMode:'sms'` 才渲染 —— 用户根本没机会输入手机号，直接报错，
-          // 表单永远出不来。**顺序死锁**。改用微信扫码后此矛盾消失：
-          // 手机号只在「首次扫码」时由弹窗页自己收集。
+          // ⚠️ **顺序死锁**（用户报障「新建账号失败：Loomy 短信登录需要手机号」）：
+          // 早期实现要求 `account.create` **必须带 phone**，而表单要等它返回
+          // `loginMode:'sms'` 才渲染 —— 用户没机会输入手机号，表单永远出不来。
+          // 故这里**绝不**接收或校验 phone：create 只负责占位，手机号由
+          // `login.sendSms` 自己收。
           //
-          // ⚠️ 先登记**占位条目**（无凭据），使前端 `login.poll` 能立即看到该账号；
-          // 登录成功后再回填昵称/有效期。
+          // ⚠️ 先登记**占位条目**（无凭据），前端拿得到 accountId 才能提交验证码；
+          // 成功后由 `login.submitSms` 回填昵称与有效期。
           await pool.addAccount({
             id,
             provider: LOOMY.id,
@@ -1453,38 +1454,8 @@ if (provider === LOBSTERAI.id) {
             createdAt: Date.now(),
           })
 
-          let started
-          try {
-            started = await loomy.startWechatLogin()
-          } catch (error) {
-            // 取二维码 uuid 失败（网络/页面结构变化）：删掉占位条目，不留幽灵账号。
-            void pool.removeAccount(id).catch(() => {})
-            const reason = error instanceof Error ? error.message : String(error)
-            throw new Error(`无法启动 Loomy 微信登录（获取二维码失败）：${reason}`)
-          }
-
-          started.result.then(async (login) => {
-            const result = await loomy.persistWechatLogin(login, { refName })
-            const credential = JSON.parse(result.access) as LoomyCredential
-            await pool.updateAccount(id, {
-              // 用手机号尾号让多账号可区分（Loomy 无独立昵称接口；
-              // 微信昵称可能有，优先用它）。
-              nickname: login.nickname !== undefined && login.nickname.length > 0
-                ? login.nickname
-                : credential.phone.length >= 4
-                  ? `Loomy ${credential.phone.slice(-4)}`
-                  : id,
-              expiresAt: result.expires > 0 ? result.expires : undefined,
-              // ⚠️ 恒 false：Loomy 无续期端点。
-              refreshable: false,
-            })
-          }).catch((error: unknown) => {
-            ctx.logger.warn(`[channel-pack] background ${LOOMY.id} wechat login failed for ${id}: ${String(error)}`)
-            // 登录失败：移除占位条目，避免留下无凭据的幽灵账号
-            void pool.removeAccount(id).catch(() => {})
-          })
-
-          return { ok: true, value: { accountId: id, loginUrl: started.loginUrl } }
+          // `loginUrl` 留空串：短信模式没有可打开的页面，前端据此渲染表单。
+          return { ok: true, value: { accountId: id, loginUrl: '', loginMode: 'sms' } }
         } else if (provider === RACCOON.id) {
           // raccoon 走**本地页承载**的微信扫码 / 短信双路径登录（与 Loomy 同型）：
           // `startLogin` 立即返回指向 127.0.0.1 的 `loginUrl`，后台 await 结果。

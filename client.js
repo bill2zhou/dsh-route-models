@@ -141,6 +141,17 @@ window.__ModuleLoader__.load({
         'chan.login.expired': '等待超时，请重新发起登录。',
         'chan.login.done': '已接入：{login}',
         'chan.login.failed': '登录未完成：{reason}',
+        'chan.login.smsHint': '输入手机号，接收短信验证码完成登录。验证码 5 分钟内有效。',
+        'chan.login.smsPhone': '手机号',
+        'chan.login.smsSend': '发送验证码',
+        'chan.login.smsSending': '发送中…',
+        'chan.login.smsResend': '重新发送',
+        'chan.login.smsCode': '验证码',
+        'chan.login.smsSubmit': '登录',
+        'chan.login.smsVerifying': '登录中…',
+        'chan.login.smsSent': '验证码已发送，请查收短信。',
+        'chan.login.smsDone': '登录成功，账号已加入列表。',
+        'chan.login.smsPhoneInvalid': '请输入 11 位手机号。',
         'chan.test.ok': '连接正常（{ms} ms）',
         'chan.test.failed': '测试失败：{reason}',
         'chan.claim.result': '已领取 {count} 个账号，共 {credit} 积分。',
@@ -423,6 +434,17 @@ window.__ModuleLoader__.load({
         'chan.login.cancel': 'Cancel',
         'chan.login.waiting': 'Sign-in page opened; waiting for authorization… (up to 10 minutes)',
         'chan.login.expired': 'Timed out — please start the sign-in again.',
+        'chan.login.smsHint': 'Enter the phone number and the SMS code to sign in. The code is valid for 5 minutes.',
+        'chan.login.smsPhone': 'Phone number',
+        'chan.login.smsSend': 'Send code',
+        'chan.login.smsSending': 'Sending…',
+        'chan.login.smsResend': 'Resend code',
+        'chan.login.smsCode': 'Code',
+        'chan.login.smsSubmit': 'Sign in',
+        'chan.login.smsVerifying': 'Signing in…',
+        'chan.login.smsSent': 'Code sent — check your messages.',
+        'chan.login.smsDone': 'Signed in; the account is in the list.',
+        'chan.login.smsPhoneInvalid': 'Enter an 11-digit phone number.',
         'chan.login.done': 'Connected: {login}',
         'chan.login.failed': 'Sign-in did not complete: {reason}',
         'chan.test.ok': 'Connection healthy ({ms} ms)',
@@ -1300,7 +1322,7 @@ window.__ModuleLoader__.load({
       { id: 'qoder', name: 'Qoder', org: '阿里系', accent: '#615CED', note: '每日 100 Credits，加密推理端点', login: 'browser' },
       { id: 'qodercn', name: 'Qoder 中国版', org: '阿里系', accent: '#7A6CF0', note: '中国版端点与模型池', login: 'browser' },
       { id: 'trae', name: 'TRAE', org: '字节', accent: '#00BFA6', note: '手机号登录', login: 'browser' },
-      { id: 'loomy', name: 'Loomy', org: '讯飞', accent: '#2F6BFF', note: '微信扫码，或短信验证码备用', login: 'browser+sms' },
+      { id: 'loomy', name: 'Loomy', org: '讯飞', accent: '#2F6BFF', note: '短信验证码登录', login: 'sms' },
       { id: 'raccoon', name: 'Raccoon', org: '商汤', accent: '#00A6A6', note: '手机号登录', login: 'browser' },
       { id: 'minimax', name: 'MiniMax Code', org: 'MiniMax', accent: '#E4007F', note: '设备码 + PKCE，每日签到', login: 'browser' },
       { id: 'zcode', name: 'ZCode', org: '智谱', accent: '#3B6EF6', note: '浏览器登录（需本机可开浏览器）', login: 'browser' },
@@ -1408,6 +1430,9 @@ window.__ModuleLoader__.load({
       const [busy, setBusy] = useState('')
       const [notice, setNotice] = useState('')
       const [login, setLogin] = useState(null)
+      // 短信登录（Loomy）：`account.create` 回 `loginMode:'sms'` 时用它驱动表单，
+      // 与上面的 `login`（扫码/浏览器弹窗 + poll）互斥，同一时刻只会有一个。
+      const [sms, setSms] = useState(null)
       const modelBatchPending = useRef(false)
       const [balanceError, setBalanceError] = useState('')
       const [balanceLoading, setBalanceLoading] = useState(false)
@@ -1563,6 +1588,15 @@ window.__ModuleLoader__.load({
           const accountId = value?.accountId
           const url = value?.loginUrl
           if (typeof accountId !== 'string' || accountId === '') throw new Error('bad-answer')
+          if (value?.loginMode === 'sms') {
+            // 短信登录没有可打开的页面：关掉为手势预开的空白窗，改在本页渲染表单。
+            // 占位账号已经存在，验证码由下面的表单提交（不经过 `login.poll`）。
+            closeLoginPopup(attempt.popup); attempt.popup = null
+            setLogin(null)
+            setSms({ accountId, phone: '', code: '', sending: false, verifying: false, sent: false, error: '' })
+            setOpen('accounts')
+            return
+          }
           if (typeof url === 'string' && url !== '') {
             const target = new URL(url)
             if (url.length > 2048 || !['http:', 'https:'].includes(target.protocol) || target.username || target.password) throw new Error('bad-login-url')
@@ -1628,6 +1662,48 @@ window.__ModuleLoader__.load({
         }, 3000)
         return () => { alive = false; clearInterval(timer) }
       }, [login, rpc, channel.id, t, onChanged, loadAccounts, loadCredits, loadBalances])
+
+      // 短信登录：验证码由本页发、本页提交，不经 `login.poll`。`login.submitSms`
+      // 失败时仍回 `ok:true, done:false`（验证码输错可重试），所以表单不关，
+      // 只把原因显示出来；5 分钟后 msgid 过期，重发即可。
+      const smsSend = async () => {
+        if (sms === null) return
+        const phone = sms.phone.trim()
+        if (!/^1[3-9]\d{9}$/.test(phone)) {
+          setSms(current => current === null ? null : { ...current, error: t('chan.login.smsPhoneInvalid') })
+          return
+        }
+        setSms(current => current === null ? null : { ...current, sending: true, error: '' })
+        try {
+          await rpc('login.sendSms', { accountId: sms.accountId, provider: channel.id, phone }, 60_000)
+          setSms(current => current === null ? null : { ...current, sending: false, sent: true })
+        } catch (error) {
+          setSms(current => current === null ? null : { ...current, sending: false, error: String(error?.message ?? error) })
+        }
+      }
+      const smsSubmit = async () => {
+        if (sms === null) return
+        const code = sms.code.trim()
+        if (code === '') return
+        setSms(current => current === null ? null : { ...current, verifying: true, error: '' })
+        try {
+          const value = await rpc('login.submitSms', { accountId: sms.accountId, provider: channel.id, code }, 90_000)
+          if (value?.done === true) {
+            setSms(null)
+            setNotice(t('chan.login.smsDone'))
+            onChanged()
+            void loadAccounts()
+            void loadCredits()
+            void loadBalances(true)
+          } else {
+            setSms(current => current === null ? null : {
+              ...current, verifying: false, error: value?.error ?? t('chan.login.failed').replace('{reason}', ''),
+            })
+          }
+        } catch (error) {
+          setSms(current => current === null ? null : { ...current, verifying: false, error: String(error?.message ?? error) })
+        }
+      }
 
       const accountAction = async (key, accountId, fn) => {
         setBusy(key); setNotice('')
@@ -1855,6 +1931,44 @@ window.__ModuleLoader__.load({
                   }),
                 }, model.dead === true ? t('chan.model.restore') : model.disabled === true ? t('chan.model.on') : t('chan.model.off'))))))) : null) : null)
 
+      // 短信登录表单（Loomy）：手机号 → 发送验证码 → 提交。短信模式没有可打开的
+      // 页面，所以它替代扫码模态框，而不是与它并存。
+      const smsModal = sms === null ? null : h('div', { className: 'ofm_scrim' },
+        h('div', { className: 'ofm_modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('chan.login.title').replace('{name}', channel.name) },
+          h('div', { className: 'ofm_modalhead' }, t('chan.login.title').replace('{name}', channel.name)),
+          h('div', { className: 'ofm_modalbody ofm_loginbody' },
+            h('p', { className: 'ofm_note' }, t('chan.login.smsHint')),
+            h('div', { className: 'ofm_row' },
+              h('input', {
+                className: 'ofm_input', type: 'tel', inputMode: 'numeric', autoComplete: 'tel',
+                'aria-label': t('chan.login.smsPhone'), placeholder: t('chan.login.smsPhone'),
+                maxLength: 11, value: sms.phone,
+                onChange: event => setSms(current => current === null ? null
+                  : { ...current, phone: event.target.value.replace(/\D/g, '').slice(0, 11) }),
+              }),
+              h('button', {
+                type: 'button', className: 'ofm_btn ghost',
+                disabled: sms.sending || sms.phone.length !== 11,
+                onClick: () => void smsSend(),
+              }, sms.sending ? t('chan.login.smsSending') : sms.sent ? t('chan.login.smsResend') : t('chan.login.smsSend'))),
+            h('div', { className: 'ofm_row' },
+              h('input', {
+                className: 'ofm_input', type: 'text', inputMode: 'numeric', autoComplete: 'one-time-code',
+                'aria-label': t('chan.login.smsCode'), placeholder: t('chan.login.smsCode'),
+                maxLength: 6, value: sms.code,
+                onChange: event => setSms(current => current === null ? null
+                  : { ...current, code: event.target.value.replace(/\D/g, '').slice(0, 6) }),
+              }),
+              h('button', {
+                type: 'button', className: 'ofm_btn primary',
+                disabled: sms.verifying || sms.code.length === 0,
+                onClick: () => void smsSubmit(),
+              }, sms.verifying ? t('chan.login.smsVerifying') : t('chan.login.smsSubmit'))),
+            sms.sent ? h('p', { className: 'ofm_note ofm_scanline' }, t('chan.login.smsSent')) : null,
+            sms.error === '' ? null : h('div', { className: 'ofm_callout ofm_error' }, h('div', null, sms.error))),
+          h('div', { className: 'ofm_modalfoot' },
+            h('button', { type: 'button', className: 'ofm_btn ghost', onClick: () => setSms(null) }, t('chan.login.cancel')))))
+
       const modal = login === null ? null : h('div', { className: 'ofm_scrim' },
         h('div', { className: 'ofm_modal', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('chan.login.title').replace('{name}', channel.name) },
           h('div', { className: 'ofm_modalhead' }, t('chan.login.title').replace('{name}', channel.name)),
@@ -1867,7 +1981,7 @@ window.__ModuleLoader__.load({
             login.url === '' ? null : h('a', { className: 'ofm_btn primary', href: login.url, target: '_blank', rel: 'noreferrer noopener' }, t('chan.login.open')),
             h('button', { type: 'button', className: 'ofm_btn ghost', onClick: () => setLogin(null) }, t('chan.login.cancel')))))
 
-      return h(Fragment, null, card, modal)
+      return h(Fragment, null, card, smsModal, modal)
     }
 
     function ChannelsPage(props) {
