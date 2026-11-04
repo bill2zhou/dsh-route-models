@@ -32672,6 +32672,8 @@ function buildDsmlSystemPrompt(tools) {
 var QUEUE_STATUS_BASE = "https://snap-access.cn-north-4.myhuaweicloud.com/api/v1/queue/status";
 var QUEUE_RETRY_DELAY_MS = 1e4;
 var QUEUE_MAX_ATTEMPTS2 = 180;
+var BUSY_MAX_ATTEMPTS = 4;
+var BUSY_RETRY_DELAY_MS = 2e3;
 function resolveFirstTokenTimeoutMs() {
   return Number.parseInt(process.env.DSH_CODEARTS_SSE_FIRST_TOKEN_TIMEOUT_MS ?? "", 10) || 3e5;
 }
@@ -32745,6 +32747,9 @@ function errorDetail(body) {
   return body;
 }
 function httpErrorCode(status, body) {
+  // 403 + TM.00000001（网络繁忙）是服务端拥塞而非鉴权失败：归 RATE_LIMIT，
+  // 让上层按「可重试」处理，而不是把一次抖动标成 AUTH（会话会直接失败）。
+  if (isServerBusy(status, body)) return "RATE_LIMIT";
   if (status === 401 || status === 403) return "AUTH";
   const detail = errorDetail(body);
   if (isQuotaExceededError(detail)) return QUOTA_EXCEEDED_CODE;
@@ -33161,6 +33166,7 @@ var CodeArtsAdapter = class extends LlmAdapter {
     let response;
     let queueAttempts = 0;
     let authRefreshed = false;
+    let busyAttempts = 0;
     let benefitHeaderDropped = false;
     const rateLimitTried = /* @__PURE__ */ new Set();
     if (currentAccountId) rateLimitTried.add(currentAccountId);
@@ -33322,11 +33328,21 @@ var CodeArtsAdapter = class extends LlmAdapter {
             );
           }
         }
+        if (isServerBusy(response.status, errorText) && busyAttempts < BUSY_MAX_ATTEMPTS) {
+          busyAttempts += 1;
+          await delay(BUSY_RETRY_DELAY_MS * busyAttempts, options.signal);
+          continue;
+        }
         if (!isQueueError(response.status, errorText)) {
           const probe = await this.queryQueueStatus(credential, options.model, options.signal);
           if (probe === void 0 || probe.status === "working") {
             const code = httpErrorCode(response.status, errorText);
-            throw new LlmError2(`codearts: model request failed with HTTP ${response.status}`, code, { status: response.status });
+            const detail = errorDetail(errorText).slice(0, 200);
+            throw new LlmError2(
+              `codearts: model request failed with HTTP ${response.status}${detail.length > 0 ? `\uFF08${detail}\uFF09` : ""}`,
+              code,
+              { status: response.status }
+            );
           }
         }
       }
@@ -58990,7 +59006,16 @@ function makeDefaultProbe(pool, timeoutMs) {
     if (credential === void 0) {
       return { modelId, ok: false, message: "\u65E0\u6CD5\u786E\u8BA4\uFF1A\u51ED\u636E\u4E0D\u53EF\u7528" };
     }
-    return probeWithAdapter(entry, credential, modelId, timeoutMs);
+    const first = await probeWithAdapter(entry, credential, modelId, timeoutMs);
+    // 鉴权失败（401/403）时**重读一次凭据再测**：探测适配器的 `refresh` 是
+    // no-op（避免影响其它账号与并发会话），而华为轮换凭据后会作废旧
+    // security_token —— 快照里那份就可能刚好在测的瞬间失效。不重读的话，
+    // 一次「凭据刚被续期」会被如实报成「无法确认：HTTP 403」，用户只能
+    // 反复点测试，直到某次快照恰好是新的为止。
+    if (first.ok || !/HTTP 40[13]/.test(String(first.message ?? ""))) return first;
+    const latest = await pool.resolveCredentialForAccount(entry.id);
+    if (latest === void 0 || JSON.stringify(latest) === JSON.stringify(credential)) return first;
+    return probeWithAdapter(entry, latest, modelId, timeoutMs);
   };
 }
 async function retestAccount(pool, accountId, deps = {}) {

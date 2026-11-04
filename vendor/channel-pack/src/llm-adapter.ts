@@ -276,6 +276,11 @@ const QUEUE_RETRY_DELAY_MS = 10_000
 /** 轮询上限：180 × 10 秒 = 30 分钟，与 deveco-code 参考实现一致。 */
 const QUEUE_MAX_ATTEMPTS = 180
 
+/** 服务端瞬时拥塞（TM.00000001）的短退避重试上限。 */
+const BUSY_MAX_ATTEMPTS = 4
+/** 拥塞重试的基准间隔：第 n 次等 n × 该值（2s / 4s / 6s / 8s）。 */
+const BUSY_RETRY_DELAY_MS = 2_000
+
 /**
  * SSE 流空闲超时。CodeArts 后端 / APIG 网关对 SSE 连接有 ~60 秒无数据即
  * 断开的策略：当模型生成超长推理或大工具调用参数时，两次 chunk 之间可能
@@ -443,8 +448,30 @@ function isQueueError(status: number, body: string): boolean {
  * 才抛 AUTH，避免把可自愈的瞬时鉴权失败暴露给用户。
  */
 function isAuthError(status: number, body: string): boolean {
+  // 业务码优先于状态码：403 也可能来自后端自身的拒绝而非网关鉴权。
+  // 实测（2026-11-04）`HTTP 403 + TM.00000001「网络繁忙，请稍后重试」`：
+  // 这是服务端拥塞，不是凭据问题。按鉴权失败处理会白白消耗一次
+  // refresh_token（华为续期会作废旧 security_token），刷新后凭据其实
+  // 没变、结果仍是 403 —— 用户只看到一句「无法确认」而账号被无谓地
+  // 轮换了一遍。故 `TM.xxxxxxxx` 这类业务错误码一律不算鉴权失败。
+  if (/TM\.\d{8}/.test(body)) return false
   if (status === 401 || status === 403) return true
   return body.includes('APIG.0602') || /invalid\s+token|token\s+expired|token\s+is\s+invalid/i.test(body)
+}
+
+/**
+ * 服务端**瞬时拥塞**（可短退避重试，与排队/限流不是同一类）。
+ *
+ * 实测（2026-11-04）：`403 + {"error_code":"TM.00000001","error_msg":"网络繁忙，请稍后重试"}`。
+ * 它与 `TM.00001041`（并发会话数已达上限）不同：后者要走 30 分钟排队循环，
+ * 前者只是一次后端抖动，重试几秒通常就过。
+ *
+ * ⚠️ 不能并进排队循环：那条路径在等待期间刻意不产出任何 chunk，180×10s
+ * 的上限会让界面长时间停在「运行中」且零输出。
+ */
+function isServerBusy(status: number, body: string): boolean {
+  if (status !== 403 && status !== 429 && status < 500) return false
+  return body.includes('TM.00000001') || /网络繁忙|network\s+busy|service\s+busy|server\s+busy/i.test(body)
 }
 
 /**
@@ -548,6 +575,9 @@ function errorDetail(body: string): string {
  * 而不是不可重试的 HTTP_400，避免长会话在接近窗口上限时直接中断。
  */
 function httpErrorCode(status: number, body: string): string {
+  // 403 + TM.00000001（网络繁忙）是服务端拥塞而非鉴权失败：归 RATE_LIMIT，
+  // 让上层按「可重试」处理，而不是把一次抖动标成 AUTH（会话会直接失败）。
+  if (isServerBusy(status, body)) return 'RATE_LIMIT'
   if (status === 401 || status === 403) return 'AUTH'
   const detail = errorDetail(body)
   if (isQuotaExceededError(detail)) return QUOTA_EXCEEDED_CODE
@@ -1127,6 +1157,8 @@ export class CodeArtsAdapter extends LlmAdapter {
     // 鉴权失败（APIG.0602 / 401 / 403）后已刷新过凭据：避免死循环，
     // 同一次 stream() 调用最多 refresh 一次。
     let authRefreshed = false
+    // 服务端瞬时拥塞（TM.00000001）已重试的次数，见 BUSY_MAX_ATTEMPTS。
+    let busyAttempts = 0
     // 该账号不带 benefit 包时去掉 `maas_type: benefit` 头重试一次：
     // 只试一次，避免与真实失败互相掩盖。
     let benefitHeaderDropped = false
@@ -1317,6 +1349,16 @@ export class CodeArtsAdapter extends LlmAdapter {
             )
           }
         }
+        // 服务端瞬时拥塞（TM.00000001「网络繁忙」）：短退避重试几次。
+        // 不进排队循环（那里 30 分钟内不产出任何 chunk），也不触发 refresh。
+        if (isServerBusy(response.status, errorText) && busyAttempts < BUSY_MAX_ATTEMPTS) {
+          busyAttempts += 1
+          this.ctx.logger?.debug?.(
+            `[codearts] 服务端拥塞（HTTP ${response.status}），第 ${busyAttempts} 次重试`,
+          )
+          await delay(BUSY_RETRY_DELAY_MS * busyAttempts, options.signal)
+          continue
+        }
         if (!isQueueError(response.status, errorText)) {
           // 非 TM.00001041 错误也未必没排队：openpangu 等模型的并发限流
           // 错误码/HTTP 状态可能与 GLM 不同，但仍会进入后端队列。先探测
@@ -1328,7 +1370,16 @@ export class CodeArtsAdapter extends LlmAdapter {
             // 与 deepseek 适配器的 httpErrorCode 词汇保持一致；
             // 400 + 上下文超限措辞归为 CONTEXT_WINDOW_EXCEEDED（触发 compaction）。
             const code = httpErrorCode(response.status, errorText)
-            throw new LlmError(`codearts: model request failed with HTTP ${response.status}`, code, { status: response.status })
+            // 把服务端错误体一并带出：403 在这套网关上可能是凭据失效
+            // （APIG.0602 / 吊销）、也可能是权限或风控拦截，只报状态码时
+            // 界面与日志都停在「无法确认」，无法判断该重新登录还是等一会。
+            // 截断到 200 字，避免把整段 HTML 错误页塞进 UI。
+            const detail = errorDetail(errorText).slice(0, 200)
+            throw new LlmError(
+              `codearts: model request failed with HTTP ${response.status}${detail.length > 0 ? `（${detail}）` : ''}`,
+              code,
+              { status: response.status },
+            )
           }
           // probe.status 为 'waiting' 或 'queue_full' → 落入下方排队流程。
         }
