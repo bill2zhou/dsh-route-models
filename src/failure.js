@@ -4,7 +4,7 @@ export function carryFailure(failure, kind = 'error') {
   const code = kind === 'aborted' ? 'ABORTED' : source.code
   const status = source.status ?? source.statusCode
   return {
-    message: typeof source.message === 'string' && source.message ? source.message : kind === 'aborted' ? 'request aborted' : 'our free model failed the turn',
+    message: typeof source.message === 'string' && source.message ? source.message : kind === 'aborted' ? 'request aborted' : 'Route Models failed the turn',
     ...typeof code === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(code) ? { code } : {},
     ...Number.isInteger(status) && status >= 400 && status <= 599 ? { status } : {},
     ...Number.isFinite(source.providerRetryAfterMs) && source.providerRetryAfterMs > 0 ? { providerRetryAfterMs: source.providerRetryAfterMs } : {},

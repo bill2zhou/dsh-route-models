@@ -42,7 +42,7 @@ console.log('ok  opener validation, literal PowerShell encoding, native argument
 async function request(handler, body, headers = {}) {
   const req = Readable.from([Buffer.from(JSON.stringify(body))])
   req.method = 'POST'
-  req.url = '/api/our-free-model/open-external'
+  req.url = '/api/route-models/open-external'
   req.headers = { host: '127.0.0.1:18900', origin: 'http://127.0.0.1:18900', ...headers }
   req.socket = { remoteAddress: '127.0.0.1' }
   let status, result

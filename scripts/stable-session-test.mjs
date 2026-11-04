@@ -13,8 +13,8 @@ try {
   const legacyValue = ~(0x001b6b2b7abdn << 12n | 1n) & 0xffffffffffffn
   const legacy = `ses_${legacyValue.toString(16).padStart(12, '0')}${up.mintSessionId().slice(16)}`
   const real = up.mintSessionId(Date.now() - 1000)
-  fs.mkdirSync(path.join(scratch, 'our-free-model'), { recursive: true })
-  const file = path.join(scratch, 'our-free-model/session-map.json')
+  fs.mkdirSync(path.join(scratch, 'route-models'), { recursive: true })
+  const file = path.join(scratch, 'route-models/session-map.json')
   fs.writeFileSync(file, JSON.stringify({ version: 1, sessions: { legacy, real } }))
   const before = Date.now()
   const upgraded = up.sessionForConversation('legacy')

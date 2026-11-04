@@ -167,7 +167,7 @@ check('a key resolves with the registry host and the format\'s endpoint',
   ['k-cerebras', 'https://api.cerebras.ai/v1', 'https://api.cerebras.ai/v1/chat/completions', 'https://api.cerebras.ai/v1/models', 'chat'])
 check('the key rides in the authorization header',
   [plain.headers.authorization, plain.headers['content-type'], plain.headers['user-agent']],
-  ['Bearer k-cerebras', 'application/json', 'dsh-our-free-model'])
+  ['Bearer k-cerebras', 'application/json', 'dsh-route-models'])
 const overridden = resolveProvider({ providers: { cerebras: { enabled: true, apiKey: 'k', baseUrl: 'http://127.0.0.1:9/cerebras/' } } }, 'cerebras')
 check('a base URL override moves the turn and the listing with it',
   [overridden.baseUrl, overridden.chatUrl, overridden.modelsUrl],

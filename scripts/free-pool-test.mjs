@@ -8,7 +8,7 @@ new Function('window',source)(window);
 const seams=bundle.factory(()=>react).__test;
 const {FreePage,Roster,freePoolView,DICT,CSS}=seams;
 const t=key=>DICT.zh[key]; t.locale='zh-CN';
-const main='our-free-model', region='our-free-model-region';
+const main='route-models', region='route-models-region';
 const catalog=[
   {id:'anonymous-unknown',availability:'unknown',route:null},
   {id:'anonymous-ok',availability:'available',route:main},

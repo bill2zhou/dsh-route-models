@@ -19,7 +19,7 @@ export function publicModelRows(snapshot) {
       const efforts = effortsFor(entry, undefined, snapshot.settings.defaultMaxTokens)
       return {
         id: entry.id, object: 'model',
-        created: Math.floor(Date.now() / 1000), owned_by: 'our-free-model',
+        created: Math.floor(Date.now() / 1000), owned_by: 'route-models',
         ...entry.contextWindow === undefined ? {} : { context_window: entry.contextWindow },
         ...efforts === undefined ? {} : {
           x_ofm_efforts: efforts.map(effort => effort.id),

@@ -13,11 +13,11 @@ import { fileURLToPath } from 'node:url'
 
 const root = path.join(fileURLToPath(new URL('..', import.meta.url)))
 const source = fs.readFileSync(path.join(root, 'client.js'), 'utf8')
-const activeTab = process.argv[2] ?? 'gateway'
+const activeTab = process.argv[2] ?? 'channels'
 
 // ── fake backend: same-origin payloads the pages read ────────────────────────
 const summary = {
-  catalog: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash', availability: 'available', vision: false, route: 'our-free-model', channel: undefined, contextWindow: 1000000, maxOutput: 32768, reasoning: true }],
+  catalog: [{ id: 'deepseek-v4.1-flash', name: 'DeepSeek V4.1 Flash', availability: 'available', vision: false, route: 'route-models', channel: undefined, contextWindow: 1000000, maxOutput: 32768, reasoning: true }],
   settings: { enabled: true, forward: { enabled: false, host: '127.0.0.1', port: 18899, lan: { enabled: false, port: 0 } }, egress: { enabled: false }, probeIntervalMinutes: 15, defaultMaxTokens: 32768, notifyOs: false, autoReloadWatch: false, updateCheckHours: 6, reloadCount: 0, reloadedAt: 0 },
   egress: { country: 'CN' }, outlet: { running: false }, probedAt: Date.now(),
   announcementVersion: 'x', version: '2.0.0', distribution: 'self',
@@ -37,7 +37,7 @@ const routes = {
   '/announcements': { items: [], unread: 0, fetchedAt: 0, notifyOs: false },
 }
 globalThis.fetch = url => {
-  const path = String(url).replace(/^.*?\/api\/our-free-model/, '').split('?')[0]
+  const path = String(url).replace(/^.*?\/api\/route-models/, '').split('?')[0]
   const payload = routes[path] ?? {}
   return Promise.resolve({ ok: true, status: 200, text: async () => JSON.stringify(payload), json: async () => payload })
 }

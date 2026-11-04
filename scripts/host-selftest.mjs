@@ -25,7 +25,7 @@ function fakeContext() {
       debug: () => {},
       log: m => logs.push(`log ${m}`),
     },
-    fiber: { entry: { options: { id: 'our-free-model' } } },
+    fiber: { entry: { options: { id: 'route-models' } } },
     // `llm` is the only service the plugin declares; everything optional is
     // reached through get(), so a fake that answers nothing would silently take
     // the headless path and skip the settings-API and forward-port checks below.
@@ -106,11 +106,11 @@ while (Date.now() < deadline && !(captured.adapters.length > 0 && ctx.__routes.l
   await new Promise(resolve => setTimeout(resolve, 500))
 }
 while (Date.now() < deadline) {
-  const summary = await call('GET', '/api/our-free-model/summary').catch(() => ({ json: null }))
+  const summary = await call('GET', '/api/route-models/summary').catch(() => ({ json: null }))
   if (Array.isArray(summary.json?.catalog) && summary.json.catalog.length > 0) break
   await new Promise(resolve => setTimeout(resolve, 1000))
 }
-await call('POST', '/api/our-free-model/reprobe')
+await call('POST', '/api/route-models/reprobe')
 const boot = captured.adapters[0]
 if (boot === undefined) { console.log('FAIL: adapter never registered\n' + logs.join('\n')); process.exit(1) }
 const adapter = boot.adapter
@@ -128,8 +128,8 @@ for (const [route, models] of Object.entries(groups)) {
 
 const preferred = arg('model', 'space-bunny-free')
 const flat = Object.entries(groups).flatMap(([route, models]) => models.map(m => ({ route, ...m })))
-const target = flat.find(entry => entry.id === preferred && entry.route === 'our-free-model')
-  ?? flat.find(entry => entry.route === 'our-free-model')
+const target = flat.find(entry => entry.id === preferred && entry.route === 'route-models')
+  ?? flat.find(entry => entry.route === 'route-models')
 if (target === undefined) { console.log('\nno usable model'); console.log(logs.join('\n')); process.exit(1) }
 
 console.log(`\n=== 1. plain chat (${target.id}) ===`)
@@ -216,11 +216,11 @@ r = await drive([{ role: 'user', content: [
 console.log(`  finish=${r.finish?.kind} text=${JSON.stringify(r.text.slice(0, 60))} failure=${JSON.stringify(r.finish?.failure?.message ?? '')}`)
 
 console.log('\n=== 5. region-gated model surfaces as its own group ===')
-const region = groups['our-free-model-region'] ?? []
+const region = groups['route-models-region'] ?? []
 if (region.length === 0) console.log('  (none on this egress)')
 else {
   const blocked = region[0]
-  const e = await drive([{ role: 'user', content: 'hi' }], { route: 'our-free-model-region', model: blocked.id, sessionId: 'selftest:region' })
+  const e = await drive([{ role: 'user', content: 'hi' }], { route: 'route-models-region', model: blocked.id, sessionId: 'selftest:region' })
   console.log(`  ${blocked.id} -> finish=${e.finish?.kind} code=${e.finish?.failure?.code} msg=${JSON.stringify((e.finish?.failure?.message ?? '').slice(0, 70))}`)
 }
 
@@ -228,55 +228,55 @@ console.log('\n=== 6. settings API through the mounted webServer route ===')
 const handler = ctx.__routes[0]?.handler
 if (handler === undefined) console.log('  no route registered')
 else {
-  const summary = await call('GET', '/api/our-free-model/summary')
+  const summary = await call('GET', '/api/route-models/summary')
   console.log(`  GET  /summary  -> ${summary.status} models=${summary.json?.catalog?.length} egress=${JSON.stringify(summary.json?.egress)} probedAt=${summary.json?.probedAt > 0}`)
-  const stats = await call('GET', '/api/our-free-model/stats')
+  const stats = await call('GET', '/api/route-models/stats')
   console.log(`  GET  /stats    -> ${stats.status} requests=${stats.json?.requests} models=${stats.json?.models?.length} days=${stats.json?.days?.length}`)
-  const announce = await call('GET', '/api/our-free-model/announcement')
+  const announce = await call('GET', '/api/route-models/announcement')
   console.log(`  GET  /announcement -> ${announce.status} version=${announce.json?.version === ANNOUNCEMENT_VERSION} ack=${announce.json?.acknowledged}`)
-  const bench = await call('POST', '/api/our-free-model/bench', { model: target.id, effort: 'light' })
+  const bench = await call('POST', '/api/route-models/bench', { model: target.id, effort: 'light' })
   console.log(`  POST /bench    -> ${bench.status} ${JSON.stringify(bench.json?.ttftMs ?? bench.json?.error)}ms ttft, ${bench.json?.tokensPerSecond === null ? 'no measurable rate' : JSON.stringify(bench.json?.tokensPerSecond)} tok/s`)
 
   console.log('\n--- 6b. the new distribution surface (meta / announcements / update) ---')
-  const meta = await call('GET', '/api/our-free-model/meta')
+  const meta = await call('GET', '/api/route-models/meta')
   console.log(`  GET  /meta          -> ${meta.status} version=${JSON.stringify(meta.json?.version)} generation=${meta.json?.generation}`)
-  const anns = await call('GET', '/api/our-free-model/announcements')
+  const anns = await call('GET', '/api/route-models/announcements')
   console.log(`  GET  /announcements -> ${anns.status} items=${anns.json?.items?.length} unread=${anns.json?.unread} error=${JSON.stringify(anns.json?.error?.slice(0, 60) ?? '')}`)
-  const refreshed = await call('POST', '/api/our-free-model/announcements/refresh')
+  const refreshed = await call('POST', '/api/route-models/announcements/refresh')
   console.log(`  POST /announcements/refresh -> ${refreshed.status} items=${refreshed.json?.view?.items?.length} fetchedAt=${refreshed.json?.view?.fetchedAt > 0}`)
   const withArrivals = refreshed.json?.view?.items?.length > 0
   if (withArrivals) {
-    const acked = await call('POST', '/api/our-free-model/announcements/ack', { id: refreshed.json.view.items[0].id })
+    const acked = await call('POST', '/api/route-models/announcements/ack', { id: refreshed.json.view.items[0].id })
     console.log(`  POST /announcements/ack -> ${acked.status} unread=${acked.json?.view?.unread}`)
   }
   const fence = await (async () => {
     const res = { status: 0, body: '', writeHead: code => { res.status = code }, end: text => { res.body = String(text ?? '') }, get headersSent() { return res.status !== 0 } }
-    const hostile = new Readable_stub('GET', '/api/our-free-model/summary')
+    const hostile = new Readable_stub('GET', '/api/route-models/summary')
     hostile.headers = { host: 'evil.example:3000', origin: 'http://evil.example:3000' }
     await handler(hostile, res)
     return res.status
   })()
   console.log(`  GET  /summary from a non-loopback Host -> ${fence} (must be 403)`)
-  const update = await call('GET', '/api/our-free-model/update/status')
+  const update = await call('GET', '/api/route-models/update/status')
   console.log(`  GET  /update/status -> ${update.status} current=${JSON.stringify(update.json?.current)} latest=${JSON.stringify(update.json?.latest)} err=${JSON.stringify(update.json?.error?.slice(0, 60) ?? '')}`)
 }
 
 console.log('\n=== 7. forward listener (OpenAI compatible) ===')
 const turnedOn = await (async () => {
   const res = { writeHead: () => {}, end: () => {}, get headersSent() { return true } }
-  await ctx.__routes[0].handler(new Readable_stub('POST', '/api/our-free-model/settings', { forward: { enabled: true, host: '127.0.0.1', port: 18923 } }), res)
+  await ctx.__routes[0].handler(new Readable_stub('POST', '/api/route-models/settings', { forward: { enabled: true, host: '127.0.0.1', port: 18923 } }), res)
   await new Promise(resolve => setTimeout(resolve, 1500))
   return summary2()
 })()
 async function summary2() {
   const res = { status: 0, body: '' }
-  await ctx.__routes[0].handler(new Readable_stub('GET', '/api/our-free-model/summary'), { writeHead: c => { res.status = c }, end: t => { res.body = String(t) } })
+  await ctx.__routes[0].handler(new Readable_stub('GET', '/api/route-models/summary'), { writeHead: c => { res.status = c }, end: t => { res.body = String(t) } })
   return JSON.parse(res.body)
 }
 console.log(`  forward: running=${turnedOn.settings?.forward?.running} port=${turnedOn.settings?.forward?.actualPort} err=${JSON.stringify(turnedOn.settings?.forward?.error ?? '')}`)
 if (turnedOn.settings?.forward?.running === true) {
   const keyRes = { status: 0, body: '' }
-  await ctx.__routes[0].handler(new Readable_stub('GET', '/api/our-free-model/forward/key'), { writeHead: c => { keyRes.status = c }, end: t => { keyRes.body = String(t) } })
+  await ctx.__routes[0].handler(new Readable_stub('GET', '/api/route-models/forward/key'), { writeHead: c => { keyRes.status = c }, end: t => { keyRes.body = String(t) } })
   const key = JSON.parse(keyRes.body).key
   const base = `http://127.0.0.1:${turnedOn.settings.forward.actualPort}`
   const models = await fetch(`${base}/v1/models`, { headers: { authorization: `Bearer ${key}` } })

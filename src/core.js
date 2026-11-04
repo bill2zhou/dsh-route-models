@@ -18,7 +18,7 @@ function publicModelRows(snapshot) {
       id: entry.id,
       object: "model",
       created: Math.floor(Date.now() / 1e3),
-      owned_by: "our-free-model",
+      owned_by: "route-models",
       ...entry.contextWindow === void 0 ? {} : { context_window: entry.contextWindow },
       ...efforts === void 0 ? {} : {
         x_ofm_efforts: efforts.map((effort) => effort.id),
@@ -186,28 +186,12 @@ function foldForwardOutcome(outcome, chunk) {
 import fs from "node:fs";
 import path from "node:path";
 import { FreeModelAdapter, ROUTE_MAIN as ROUTE_MAIN2, ROUTE_REGION as ROUTE_REGION2 } from "./adapter.js";
-import { buildCatalog, buildEacCatalog, buildKiloCatalog, isEacEntry, isKiloEntry, parseListing, reviveKiloCatalog } from "./catalog.js";
-import { buildAggregateCatalog, isAggregateEntry } from "./aggregate.js";
-import { buildComboCatalog, isComboEntry, normalizeCombos, pruneRotation } from "./combos.js";
 import { JsonStore, SETTINGS_INITIAL, STATS_INITIAL, STATS_VERSION, migrateStats, pruneDays, recordTurn, recordUsage, isModelHidden } from "./store.js";
-import { STATE, detectEgress, probeCatalog } from "./probe.js";
-import { CODE, UpstreamError, getJson } from "./http.js";
+import { STATE, detectEgress } from "./probe.js";
+import { CODE, UpstreamError } from "./http.js";
 import { runModelTest, modelAvailability } from "./model-test.js";
 import { DEFAULT_LEVEL } from "./effort.js";
-import { fetchSealedListing } from "./eac.js";
-import { fetchKiloListing } from "./kilo.js";
-import { sessionForConversation } from "./upstream.js";
 import { isSubscriptionEntry, subscriptionCatalog } from "./subscription-adapter.js";
-var FALLBACK_CATALOG = buildCatalog([
-  "mimo-v2.6-flash-free",
-  "mimo-v2.5-free",
-  "ling-3.0-flash-fin-free",
-  "nemotron-3-ultra-free",
-  "nemotron-3.5-lightning-free",
-  "space-bunny-free",
-  "muse-spark-1.3-contributor-free",
-  "muse-spark-1.2-contributor-free"
-]);
 function createRuntimeStores({ dataDir, logger = console }) {
   if (typeof dataDir !== "string" || !path.isAbsolute(dataDir)) {
     throw new TypeError("dataDir must be an absolute path");
@@ -218,13 +202,12 @@ function createRuntimeStores({ dataDir, logger = console }) {
   });
   const settingsInitial = structuredClone(SETTINGS_INITIAL);
   const settingsPath = path.join(dataDir, "settings.json");
-  if (fs.existsSync(settingsPath)) settingsInitial.combos = [];
   const settings = new JsonStore(settingsPath, settingsInitial, {
     log: (message) => logger.warn?.(message)
   });
   const stats = open("stats.json", STATS_INITIAL);
   const availability = open("availability.json", { version: 1, at: 0, egress: null, results: {} });
-  const catalogStore = open("catalog.json", { version: 1, at: 0, entries: FALLBACK_CATALOG.map((entry) => entry.id) });
+  const catalogStore = open("catalog.json", { version: 1, at: 0, entries: [] });
   if (stats.get().version !== STATS_VERSION) stats.edit(migrateStats);
   return {
     settings,
@@ -243,49 +226,31 @@ function createModelRuntime({
   settings,
   stats,
   availability,
-  catalogStore,
   logger = console,
-  attributionUserAgent = "our-free-model",
+  attributionUserAgent = "route-models",
   resolveImage,
-  sealedCredential = () => null,
-  onSealedUnavailable = () => {
-  },
   onTopology = () => {
   },
   subscriptionRuntime
 }) {
-  let catalog = materializeCatalog(catalogStore.get().entries ?? []);
-  let sealedCatalog = sealedCredential() === null ? [] : buildEacCatalog(catalogStore.get().sealIds ?? []);
-  let kiloCatalog = reviveKiloCatalog(catalogStore.get().kiloRows);
-  let aggregateCatalog = [];
   let subscriptionEntries = [];
-  let comboCatalog = [];
-  let freeCatalog = catalog;
+  let catalog = [];
   let egress = availability.get().egress ?? null;
-  let gatewayLatency = { ms: 0, at: 0 };
+  const gatewayLatency = { ms: 0, at: 0 };
   let disposed = false;
   const lifetime = new AbortController();
   let egressGeneration = 0;
   const rebuildCatalog = () => {
     const seen = /* @__PURE__ */ new Set();
     const merged = [];
-    for (const entry of [...freeCatalog, ...sealedCatalog, ...kiloCatalog, ...aggregateCatalog, ...subscriptionEntries]) {
+    for (const entry of subscriptionEntries) {
       if (entry === null || entry === void 0 || seen.has(entry.id)) continue;
-      seen.add(entry.id);
-      merged.push(entry);
-    }
-    const combos = normalizeCombos(settings.get().combos);
-    comboCatalog = buildComboCatalog(combos, merged);
-    pruneRotation(combos);
-    for (const entry of comboCatalog) {
-      if (seen.has(entry.id)) continue;
       seen.add(entry.id);
       merged.push(entry);
     }
     catalog = merged;
   };
   const mergeCatalogs = () => {
-    aggregateCatalog = buildAggregateCatalog(settings.get().aggregate ?? {});
     subscriptionEntries = subscriptionCatalog(subscriptionRuntime);
     rebuildCatalog();
   };
@@ -307,7 +272,6 @@ function createModelRuntime({
     state,
     resolveImage,
     subscriptionRuntime,
-    sealedCredential,
     recordUsage: (record) => {
       if (disposed) return;
       recordUsage(stats, record);
@@ -317,174 +281,19 @@ function createModelRuntime({
       if (!disposed) recordTurn(stats, record);
     },
     warn: (message) => logger.warn?.(message) ?? logger.log?.(message)
-    // Automatic probing is disabled by owner policy: a region refusal from a
-    // real turn stays a turn failure and never fires a background probe.
   });
-  let catalogRefresh = null;
-  let catalogRefreshForced = false;
-  let catalogRefreshProbed = false;
   async function refreshCatalog(opts) {
-    const { probe = false, force = false, report = false } = opts ?? {};
+    const { report = false } = opts ?? {};
     const result = (value) => report ? value : value.catalog;
     if (disposed) return result({ catalog, sources: {} });
-    while (catalogRefresh !== null) {
-      const shared = catalogRefresh;
-      const sharedForced = catalogRefreshForced;
-      const sharedProbed = catalogRefreshProbed;
-      const value = await shared;
-      if (disposed || (!force || sharedForced) && (!probe || sharedProbed)) return result(value);
-    }
-    const run = refreshCatalogOnce({ probe, force });
-    catalogRefresh = run;
-    catalogRefreshForced = force;
-    catalogRefreshProbed = probe;
-    try {
-      return result(await run);
-    } finally {
-      if (catalogRefresh === run) {
-        catalogRefresh = null;
-        catalogRefreshForced = false;
-        catalogRefreshProbed = false;
-      }
-    }
-  }
-  async function refreshCatalogOnce({ probe, force }) {
-    const sources = {};
-    let ids = [];
-    try {
-      ids = parseListing(await fetchListing());
-    } catch (error) {
-      if (!disposed) logger.warn?.(`our-free-model: model listing refresh failed (${error?.message ?? error}); keeping the cached catalog`);
-    }
-    if (disposed) return { catalog, sources };
-    if (ids.length > 0) {
-      freeCatalog = buildCatalog(ids);
-      catalogStore.update({ at: Date.now(), entries: freeCatalog.map((entry) => entry.id) });
-      catalogStore.flush();
-      settings.update({ catalogSyncedAt: Date.now() });
-    } else {
-      freeCatalog = materializeCatalog(catalogStore.get().entries ?? []);
-    }
-    sources.free = { ok: ids.length > 0, count: freeCatalog.length };
-    sources.sealed = await refreshSealedRoster();
-    if (disposed) return { catalog, sources };
-    sources.kilo = { ok: await refreshKiloRoster(), count: kiloCatalog.length };
-    if (disposed) return { catalog, sources };
-    mergeCatalogs();
-    if (probe) await refreshAvailability(force);
-    emitTopology();
-    return { catalog, sources };
-  }
-  async function refreshSealedRoster() {
-    const credential = sealedCredential();
-    if (credential === null) {
-      sealedCatalog = [];
-      onSealedUnavailable();
-      return { ok: true, count: 0, skipped: true };
-    }
-    try {
-      const ids = parseListing(await fetchSealedListing(credential, { signal: lifetime.signal }));
-      if (disposed) return;
-      if (Object.hasOwn(credential, "userToken") && sealedCredential()?.userToken !== credential.userToken) return { ok: false, count: sealedCatalog.length, skipped: true };
-      if (ids.length > 0) {
-        sealedCatalog = buildEacCatalog(ids);
-        catalogStore.update({ sealIds: sealedCatalog.map((entry) => entry.id) });
-      }
-      return { ok: ids.length > 0, count: sealedCatalog.length };
-    } catch (error) {
-      if (disposed) return;
-      if (Object.hasOwn(credential, "userToken") && sealedCredential()?.userToken !== credential.userToken) return { ok: false, count: sealedCatalog.length, skipped: true };
-      if (error?.code === CODE.credential) {
-        sealedCatalog = [];
-        catalogStore.update({ sealIds: [] });
-        logger.warn?.("our-free-model: the sealed lane refused its credential; its models are hidden until it is accepted again");
-        return { ok: false, count: 0 };
-      }
-      logger.warn?.(`our-free-model: sealed lane listing failed (${error?.code ?? "unknown"}); keeping its cached roster`);
-      return { ok: false, count: sealedCatalog.length };
-    }
-  }
-  async function refreshSealedLane() {
-    await refreshSealedRoster();
-    if (disposed) return;
     mergeCatalogs();
     emitTopology();
+    return result({ catalog, sources: {} });
   }
-  async function refreshKiloRoster() {
-    try {
-      const payload = await fetchKiloListing({ signal: lifetime.signal });
-      if (disposed) return;
-      if (payload?.error || !Array.isArray(payload?.data)) throw new Error("invalid Kilo model listing");
-      kiloCatalog = buildKiloCatalog(payload.data);
-      catalogStore.update({ kiloRows: kiloCatalog });
-      return true;
-    } catch (error) {
-      if (!disposed) logger.warn?.(`our-free-model: Kilo channel listing failed (${error?.code ?? error?.message ?? "unknown"}); keeping its cached roster`);
-      return false;
-    }
-  }
-  async function fetchListing() {
-    if (disposed) return { data: [] };
-    const started = Date.now();
-    const listing = await getJson("/inference/v1/models", {
-      session: sessionForConversation("catalog:our-free-model"),
-      attributionUserAgent,
-      signal: lifetime.signal
-    });
-    if (!disposed) gatewayLatency = { ms: Date.now() - started, at: Date.now() };
-    return listing;
-  }
-  let probeRound = null;
-  let probeRoundGeneration = 0;
-  let probeThrottleStreak = 0;
-  let probeBackoffUntil = 0;
-  async function runProbeRound() {
-    const generation = egressGeneration;
-    const probeable = catalog.filter((entry) => !isEacEntry(entry) && !isKiloEntry(entry) && !isAggregateEntry(entry) && !isComboEntry(entry) && !isSubscriptionEntry(entry));
-    const results = await probeCatalog(probeable, { attributionUserAgent, signal: lifetime.signal }, (id, result) => {
-      if (disposed || generation !== egressGeneration) return;
-      availability.edit((value) => ({
-        ...value,
-        results: {
-          ...value.results,
-          [id]: {
-            state: result.state,
-            ...result.detail === void 0 ? {} : { detail: result.detail },
-            ...result.ttftMs === void 0 ? {} : { ttftMs: result.ttftMs },
-            latencyMs: result.latencyMs,
-            startedAt: result.startedAt,
-            at: Date.now()
-          }
-        }
-      }));
-    }, 2);
-    if (disposed || generation !== egressGeneration) return {};
-    availability.update({ at: Date.now(), egress });
-    availability.flush();
-    const verdicts = Object.values(results);
-    if (verdicts.length > 0 && verdicts.every((row) => row.state === STATE.unavailable)) {
-      logger.warn?.(`our-free-model: the gateway refused all ${verdicts.length} models this round (${verdicts[0].detail ?? "no detail"}); keeping them advertised`);
-    }
-    const allThrottled = verdicts.length > 0 && verdicts.every((row) => row.state === STATE.throttled);
-    probeThrottleStreak = allThrottled ? probeThrottleStreak + 1 : 0;
-    probeBackoffUntil = allThrottled ? Date.now() + Math.min(30 * 2 ** (probeThrottleStreak - 1), 120) * 6e4 : 0;
-    if (allThrottled) {
-      logger.warn?.(`our-free-model: the probe round hit the lane's quota; availability probes pause for ${Math.round((probeBackoffUntil - Date.now()) / 6e4)} minutes (your own requests are unaffected, and the reprobe button forces a round)`);
-    }
+  async function refreshAvailability() {
+    if (disposed) return {};
     emitTopology();
-    return results;
-  }
-  async function refreshAvailability(force = false) {
-    if (disposed || !force && probeBackoffUntil > Date.now()) return {};
-    if (probeRound !== null && probeRoundGeneration === egressGeneration) return probeRound;
-    probeRoundGeneration = egressGeneration;
-    const round = runProbeRound();
-    probeRound = round;
-    try {
-      return await round;
-    } finally {
-      if (probeRound === round) probeRound = null;
-    }
+    return {};
   }
   async function watchEgress() {
     if (disposed) return false;
@@ -504,10 +313,8 @@ function createModelRuntime({
         manualResults: expire(value.manualResults)
       }));
       availability.flush();
-      probeThrottleStreak = 0;
-      probeBackoffUntil = 0;
       emitTopology();
-      logger.info?.(`our-free-model: egress changed to ${seen.ip}${seen.country ? ` (${seen.country})` : ""}; previous availability marked stale`);
+      logger.info?.(`route-models: egress changed to ${seen.ip}${seen.country ? ` (${seen.country})` : ""}; previous availability marked stale`);
     }
     return true;
   }
@@ -554,10 +361,10 @@ function createModelRuntime({
     state,
     adapter,
     refreshCatalog,
-    refreshSealedLane,
     refreshAvailability,
     watchEgress,
     fetchListing,
+    publicModelRows: () => publicModelRows(state()),
     complete: createForwardCompletion({
       adapter,
       signal: lifetime.signal,
@@ -571,10 +378,9 @@ function createModelRuntime({
         }) };
       }
     }),
-    publicModelRows: () => publicModelRows(state()),
     // A settings write that changes the aggregate lane or the chains (a key
     // saved, a subscription imported/toggled/removed, a combo edited) rebuilds
-    // the merged view without an upstream listing round.
+    // the merged view without any upstream round.
     syncAggregateCatalog() {
       if (disposed) return catalog;
       mergeCatalogs();
@@ -599,18 +405,15 @@ function createModelRuntime({
       lifetime.abort();
     }
   };
-}
-function materializeCatalog(ids) {
-  const rebuilt = buildCatalog(ids);
-  return rebuilt.length > 0 ? rebuilt : FALLBACK_CATALOG;
+  async function fetchListing() {
+    if (disposed) return { data: [] };
+    return { data: [] };
+  }
 }
 function computeMembership(catalog, availabilitySnapshot, settings) {
   const expose = settings?.exposeRegionModels !== false;
   const verdictOf = (entry) => modelAvailability(entry.id, availabilitySnapshot, Boolean(entry.channel)).availability;
-  const probeable = catalog.filter((entry) => !entry.channel);
-  const refusedAll = probeable.length > 0 && probeable.every((entry) => verdictOf(entry) === STATE.unavailable);
-  let usable = catalog.filter((entry) => verdictOf(entry) !== STATE.unavailable);
-  if (refusedAll) usable = catalog;
+  const usable = catalog.filter((entry) => verdictOf(entry) !== STATE.unavailable);
   const main = [];
   const region = [];
   for (const entry of usable) {

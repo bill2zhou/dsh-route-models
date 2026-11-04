@@ -674,7 +674,7 @@ try {
     checkFinal(run, 'error', 1)
     assert.equal(run.adapter.providerRetryPolicy().retryableCodes.includes(run.finish?.failure?.code), false)
     assert.ok(run.elapsedMs < 1000)
-    assert.match(run.finish.failure.message, /^our free model reached its 0s time limit before its finish token$/)
+    assert.match(run.finish.failure.message, /^Route Models reached its 0s time limit before its finish token$/)
   })
 
   await check('恢复回合的丢弃内容告警不按 payload 重建次数累积', async () => {
@@ -753,7 +753,7 @@ try {
   const { apply, inject } = await import('../index.js')
   async function withForward(answers, fn) {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ofm-recovery-forward-'))
-    const dataDir = path.join(home, 'our-free-model')
+    const dataDir = path.join(home, 'route-models')
     const originalHome = process.env.DSH_HOME
     fs.mkdirSync(dataDir)
     fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({
@@ -772,7 +772,7 @@ try {
       }, { what: '本地插件设置 API', timeoutMs: 3000 })
       let summary
       await until(async () => {
-        summary = await callRoute(api, 'GET', '/api/our-free-model/summary')
+        summary = await callRoute(api, 'GET', '/api/route-models/summary')
         return summary.json?.settings?.forward?.running === true
       }, { what: 'Forward 开启', timeoutMs: 3000 })
       const port = summary.json.settings.forward.actualPort
@@ -788,7 +788,7 @@ try {
       }
       await fn({ scenario, headers, base: `http://127.0.0.1:${port}`, savedStats })
     } finally {
-      if (api) await callRoute(api, 'POST', '/api/our-free-model/settings', { forward: { enabled: false } })
+      if (api) await callRoute(api, 'POST', '/api/route-models/settings', { forward: { enabled: false } })
       for (const dispose of ctx.__disposers.reverse()) dispose()
       for (const timer of scenario.timers) clearTimeout(timer)
       for (const response of scenario.responses) response.destroy()

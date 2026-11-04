@@ -186,7 +186,7 @@ export function fakeContext({ inject, mounted = ['llm', 'webServer', 'timer', 'c
       debug: () => {},
       log: m => logs.push(`log ${m}`),
     },
-    fiber: { entry: { options: { id: 'our-free-model' } } },
+    fiber: { entry: { options: { id: 'route-models' } } },
     get: name => (mountedSet.has(name) ? services[name] : undefined),
     on: event => { captured.events.push(event); return () => {} },
     emit: event => { captured.events.push(`emit:${event}`) },
@@ -236,7 +236,7 @@ export function fakeContext({ inject, mounted = ['llm', 'webServer', 'timer', 'c
   const wrap = names => new Proxy(base, {
     get(target, key) {
       if (typeof key === 'string' && withheldFor(names).includes(key)) {
-        throw new Error(`our-free-model read ctx.${key} without inject (cordis withholds it)`)
+        throw new Error(`route-models read ctx.${key} without inject (cordis withholds it)`)
       }
       if (typeof key === 'string' && names.has(key) && mountedSet.has(key)) return services[key]
       return Reflect.get(target, key)

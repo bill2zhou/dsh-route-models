@@ -11,7 +11,7 @@
  *
  * The second is the code itself, and the retry policy read against it. This suite
  * used to prove neither: it called the adapter with `model:
- * "our-free-model/test-model-free"`, and `baseModelId` strips a *label*, not a
+ * "route-models/test-model-free"`, and `baseModelId` strips a *label*, not a
  * route, so every case — including "transport failure" and "aborted signal" —
  * returned the up-front "does not serve" error without a request leaving the
  * process. Four labelled cases, one code, and nothing said about retryability:

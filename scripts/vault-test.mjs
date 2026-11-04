@@ -291,7 +291,7 @@ const { createGatewayServer, resetAnalytics, poolProbe } = await import('../work
     id: 'deepseek-ai/deepseek-v4.1-flash', name: 'EAC DeepSeek V4.1 Flash', channel: 'eac', wire: 'chat',
     vision: false, reasoning: true, contextWindow: 128000, maxOutput: 64000, canDisableThinking: false, regionSensitive: false,
   }
-  const state = () => ({ catalog: [sealedEntry], membership: { 'our-free-model': [sealedEntry.id] }, settings: {}, attributionUserAgent: '' })
+  const state = () => ({ catalog: [sealedEntry], membership: { 'route-models': [sealedEntry.id] }, settings: {}, attributionUserAgent: '' })
 
   const locked = new FreeModelAdapter({ state, sealedCredential: () => null, recordUsage: () => {}, recordTurn: () => {} })
   const lockedChunks = []
@@ -936,14 +936,14 @@ const { createGatewayServer, resetAnalytics, poolProbe } = await import('../work
       const sealed = models.find(model => model.id === 'deepseek-ai/deepseek-v4.1-flash')
       check('the Tauri boot lists the sealed model under the main route', sealed !== undefined, true)
       check('with the model name under the channel tag', sealed?.name, 'EAC DeepSeek V4.1 Flash')
-      const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+      const summary = await callRoute(api(), 'GET', '/api/route-models/summary')
       const summaryRow = (summary.json.catalog ?? []).find(entry => entry.id === 'moonshotai/kimi-k3')
       check('the settings page identifies an EAC listing without claiming a completed test', [summaryRow?.availabilitySource, summaryRow?.availability, summaryRow?.channel], ['listing', 'unknown', 'eac'])
       check('the settings page row carries the tag prefix in its name', summaryRow?.name, 'EAC Kimi K3')
       check('the settings API exposes no credential material anywhere', JSON.stringify(summary.json).includes('sk-'), false)
       const rosterIdsShown = (summary.json.catalog ?? []).filter(entry => entry.channel === 'eac').map(entry => entry.id)
       check('all listed sealed models made the roster', rosterIdsShown.slice().sort(), rosterIds.slice().sort())
-      const poolRow = await callRoute(api(), 'GET', '/api/our-free-model/pool')
+      const poolRow = await callRoute(api(), 'GET', '/api/route-models/pool')
       check('the pool route proxies the gateway snapshot for approved hosts', poolRow.json, { ok: true, stars: 4, pool: 6, poolSource: 'formula', active24h: 2, inflight: 1, concurrencyPerIp: 5, ts: 0 })
     } finally {
       restore()
@@ -957,12 +957,12 @@ const { createGatewayServer, resetAnalytics, poolProbe } = await import('../work
       await until(async () => (await adapter.listModels(ROUTE_MAIN)).some(model => model.id === 'deepseek-ai/deepseek-v4.1-flash'), {
         what: 'the sealed roster on a web-desktop host', timeoutMs: 10000,
       })
-      const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+      const summary = await callRoute(api(), 'GET', '/api/route-models/summary')
       check('a web-desktop boot lists the sealed models and reports the lane open', [
         (summary.json.catalog ?? []).some(entry => entry.id === 'moonshotai/kimi-k3'),
         summary.json.laneAvailable,
       ], [true, true])
-      const poolRow = await callRoute(api(), 'GET', '/api/our-free-model/pool')
+      const poolRow = await callRoute(api(), 'GET', '/api/route-models/pool')
       check('the pool route answers on a web-desktop host too', poolRow.json?.ok, true)
     } finally {
       restore()
@@ -976,11 +976,11 @@ const { createGatewayServer, resetAnalytics, poolProbe } = await import('../work
       await until(async () => (await adapter.listModels(ROUTE_MAIN)).some(model => model.id === 'deepseek-ai/deepseek-v4.1-flash'), {
         what: 'the sealed roster on a DSH Tauri host', timeoutMs: 10000,
       })
-      const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+      const summary = await callRoute(api(), 'GET', '/api/route-models/summary')
       check('a DSH Tauri boot lists the sealed models and opens the lane (#267)', [
         (summary.json.catalog ?? []).some(entry => entry.id === 'moonshotai/kimi-k3'), summary.json.laneAvailable,
       ], [true, true])
-      const poolRow = await callRoute(api(), 'GET', '/api/our-free-model/pool')
+      const poolRow = await callRoute(api(), 'GET', '/api/route-models/pool')
       check('the pool route answers on a DSH Tauri host', poolRow.json?.ok, true)
     } finally { restore() }
   }
@@ -992,10 +992,10 @@ const { createGatewayServer, resetAnalytics, poolProbe } = await import('../work
       await until(async () => (await adapter.listModels(ROUTE_MAIN)).length > 0, { what: 'the free roster', timeoutMs: 10000 })
       const models = await adapter.listModels(ROUTE_MAIN)
       check('an unapproved host lists no sealed models', models.some(model => model.id.includes('/') || model.name.startsWith('EAC ')), false)
-      const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+      const summary = await callRoute(api(), 'GET', '/api/route-models/summary')
       check('and its settings page has no sealed rows at all', (summary.json.catalog ?? []).some(entry => entry.channel === 'eac'), false)
       check('the summary names the closed lane (issue #60)', summary.json.laneAvailable, false)
-      const refusedPool = await callRoute(api(), 'GET', '/api/our-free-model/pool')
+      const refusedPool = await callRoute(api(), 'GET', '/api/route-models/pool')
       check('an unapproved host gets no pool snapshot either', refusedPool.status, 404)
     } finally {
       restore()

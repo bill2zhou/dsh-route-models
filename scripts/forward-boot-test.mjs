@@ -45,8 +45,8 @@ process.env.DSH_HOME = scratch
 // The settings file is the whole scenario: an install that had the port on,
 // reloaded into a fresh generation with no page open to click anything.
 const forwardPort = await freePort()
-fs.mkdirSync(path.join(scratch, 'our-free-model'), { recursive: true })
-fs.writeFileSync(path.join(scratch, 'our-free-model', 'settings.json'), JSON.stringify({
+fs.mkdirSync(path.join(scratch, 'route-models'), { recursive: true })
+fs.writeFileSync(path.join(scratch, 'route-models', 'settings.json'), JSON.stringify({
   version: 1, enabled: true, forward: { enabled: true, host: '127.0.0.1', port: forwardPort },
 }), { mode: 0o600 })
 
@@ -64,7 +64,7 @@ try {
   })
   check('the port answers while the probe round is still in flight', await health(), 200)
 
-  const stored = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8'))
+  const stored = JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'settings.json'), 'utf8'))
   const listed = await fetch(`http://127.0.0.1:${forwardPort}/v1/models`, {
     headers: { authorization: `Bearer ${stored.forwardKey}` },
   }).catch(() => null)
@@ -80,10 +80,10 @@ const api = () => routes.find(route => route.kind === 'prefix')?.handler
 await until(() => api() !== undefined, { what: 'the settings API', timeoutMs: 5000 })
 try {
   await until(async () => {
-    const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+    const summary = await callRoute(api(), 'GET', '/api/route-models/summary')
     return summary.json?.settings?.forward?.running === true
   }, { what: 'the boot round to settle with the listener still up', timeoutMs: 10_000 })
-  const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+  const summary = await callRoute(api(), 'GET', '/api/route-models/summary')
   check('after the round lands, the same listener is still the one running',
     [summary.json.settings.forward.running, summary.json.settings.forward.actualPort], [true, forwardPort])
   check('and the round itself completed', typeof summary.json.catalog, 'object')
@@ -98,7 +98,7 @@ for (const disposer of ctx.__disposers.reverse()) {
 // A temporary conflict must not rewrite the user's desired port (#305).
 const previousHome = process.env.DSH_HOME
 const conflictHome = path.join(scratch, 'port-conflict')
-const conflictFile = path.join(conflictHome, 'our-free-model', 'settings.json')
+const conflictFile = path.join(conflictHome, 'route-models', 'settings.json')
 fs.mkdirSync(path.dirname(conflictFile), { recursive: true })
 const occupied = net.createServer(socket => socket.end())
 await new Promise(resolve => occupied.listen(0, '127.0.0.1', resolve))
@@ -117,7 +117,7 @@ const bootConflict = async () => {
   apply(conflictCtx, { distribution: 'managed' })
   const handler = () => registrations.find(route => route.kind === 'prefix')?.handler
   await until(() => handler() !== undefined, { what: 'conflict generation API' })
-  const snapshot = async () => (await callRoute(handler(), 'GET', '/api/our-free-model/summary')).json
+  const snapshot = async () => (await callRoute(handler(), 'GET', '/api/route-models/summary')).json
   await until(async () => (await snapshot()).settings.forward.running, { what: 'conflict listener', timeoutMs: 10000 })
   return { handler: handler(), snapshot }
 }
@@ -126,19 +126,19 @@ try {
   const fallback = (await generation.snapshot()).settings.forward.actualPort
   check('occupied requested port falls back to another live port', fallback !== requestedPort, true)
   check('fallback preserves the desired port on disk', JSON.parse(fs.readFileSync(conflictFile)).forward.port, requestedPort)
-  await callRoute(generation.handler, 'POST', '/api/our-free-model/settings', { probeIntervalMinutes: 21 })
+  await callRoute(generation.handler, 'POST', '/api/route-models/settings', { probeIntervalMinutes: 21 })
   check('an unrelated save keeps the same fallback listener', (await generation.snapshot()).settings.forward.actualPort, fallback)
   check('an unrelated save preserves the original desired port', JSON.parse(fs.readFileSync(conflictFile)).forward.port, requestedPort)
-  const recipes = await callRoute(generation.handler, 'GET', '/api/our-free-model/clients')
+  const recipes = await callRoute(generation.handler, 'GET', '/api/route-models/clients')
   check('client recipes advertise the actual fallback port', recipes.json.baseUrl, `http://127.0.0.1:${fallback}`)
   stopConflict()
   await new Promise(resolve => occupied.close(resolve))
   generation = await bootConflict()
   check('after restart the released requested port is recovered', (await generation.snapshot()).settings.forward.actualPort, requestedPort)
-  await callRoute(generation.handler, 'POST', '/api/our-free-model/settings', { forward: { port: 0 } })
+  await callRoute(generation.handler, 'POST', '/api/route-models/settings', { forward: { port: 0 } })
   const automaticPort = (await generation.snapshot()).settings.forward.actualPort
   check('port zero stays a desired configuration value', JSON.parse(fs.readFileSync(conflictFile)).forward.port, 0)
-  await callRoute(generation.handler, 'POST', '/api/our-free-model/settings', { probeIntervalMinutes: 22 })
+  await callRoute(generation.handler, 'POST', '/api/route-models/settings', { probeIntervalMinutes: 22 })
   check('port zero does not rebind on unrelated saves', (await generation.snapshot()).settings.forward.actualPort, automaticPort)
 } finally {
   stopConflict()
@@ -149,7 +149,7 @@ try {
 // 相对 DSH_HOME 仍应读取原目录，核心接收到的路径须由插件入口归一化。
 const originalCwd = process.cwd()
 const originalDshHome = process.env.DSH_HOME
-const relativeDataDir = path.join(scratch, 'relative-dsh', 'our-free-model')
+const relativeDataDir = path.join(scratch, 'relative-dsh', 'route-models')
 fs.mkdirSync(relativeDataDir, { recursive: true })
 fs.writeFileSync(path.join(relativeDataDir, 'settings.json'), JSON.stringify({
   enabled: false, forwardKey: 'relative-home-key',

@@ -11,8 +11,8 @@
  * The records travel beside the content but are not part of it: a commit that
  * only touches catalog/ and feed/ never moves the pointer, so rewriting the
  * fields here is idempotent and the suite stays green on the very commit that
- * writes them. This is the refresh step of the two-step convention in
- * docs/RELEASING.md ("Catalog records and the revision convention").
+ * writes them. This is the refresh step of the two-step catalog convention:
+ * content first, the records that describe it second.
  *
  * Writes nothing when the fields already match; exits non-zero when git or the
  * catalog files are unusable rather than guessing at a revision.

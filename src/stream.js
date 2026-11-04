@@ -273,7 +273,7 @@ export function mapUsage(usage) {
  * `totalTokens` far above the model's declared window after a short vision
  * turn — hosts that soft-budget from that sample then fail-closed with
  * CONTEXT_WINDOW_EXCEEDED even when the local conversation surface is tiny
- * (see Ebony-Vinyl/dsh-our-free-model#494, #464; related image-spill history
+ * (see Ebony-Vinyl/dsh-route-models#494, #464; related image-spill history
  * #151 / #195). Output / reasoning counts stay so decode stats remain usable;
  * omitting `totalTokens` and zeroing prompt pressure lets the host fall back
  * to its local estimate. The Adapter restricts this heuristic to that exact

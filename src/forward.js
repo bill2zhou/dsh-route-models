@@ -323,7 +323,7 @@ export async function bindForwardPort(server, { address, port, attempts = BIND_A
  * @param {(req: http.IncomingMessage, res: http.ServerResponse) => Promise<boolean>} [options.handleRequest] - 产品附加路由，返回 true 表示已处理。
  * @returns {Promise<{server: http.Server, port: number, close: () => Promise<void>}>}
  */
-export async function startForwardServer({ config, complete, modelRows, log = () => {}, onTrace = () => {}, heartbeatMs = SSE_HEARTBEAT_MS, optimize = null, health = () => ({ ok: true, service: 'our-free-model' }), handleRequest }) {
+export async function startForwardServer({ config, complete, modelRows, log = () => {}, onTrace = () => {}, heartbeatMs = SSE_HEARTBEAT_MS, optimize = null, health = () => ({ ok: true, service: 'route-models' }), handleRequest }) {
   const server = http.createServer((req, res) => {
     const trace = traceRequest(req, res, 'forward', onTrace)
     void handle(req, res, trace).catch(error => {
@@ -349,7 +349,7 @@ export async function startForwardServer({ config, complete, modelRows, log = ()
     const settings = config()
     if (!settings.enabled) {
       if (gemini) { geminiError(res, 503, 'the forward listener is switched off'); return }
-      openAiError(res, 503, 'service_unavailable', 'the forward listener is switched off in Our Free Model settings')
+      openAiError(res, 503, 'service_unavailable', 'the forward listener is switched off in Route Models settings')
       return
     }
     // CORS preflight, so a browser-based harness on another origin can use it.
@@ -545,7 +545,7 @@ export async function startLanRelay({ config, log = () => {}, onTrace = () => {}
     }
     const settings = config()
     if (!settings.enabled) {
-      openAiError(res, 503, 'service_unavailable', 'the LAN relay is switched off in Our Free Model settings')
+      openAiError(res, 503, 'service_unavailable', 'the LAN relay is switched off in Route Models settings')
       return
     }
     if (!authorized(req, settings.lanKey)) {

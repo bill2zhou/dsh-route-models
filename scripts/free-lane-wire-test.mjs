@@ -110,7 +110,7 @@ console.log('\n=== 3. the session id must carry the descending encoding the gate
   check('the counter stays in the accepted 1-63 window', counter > 0 && counter <= 63, true)
   check('one conversation, one session', up.sessionForConversation('wire:conversation'), id)
   check('another conversation, another session', up.sessionForConversation('wire:other') !== id, true)
-  const saved = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'session-map.json'), 'utf8'))
+  const saved = JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'session-map.json'), 'utf8'))
   check('session mapping is persisted outside the user directory', saved.sessions['wire:conversation'], id)
   const caller = 'ses_ffffffffffffABCDEFGHIJKLMN'
   check('a canonical caller id passes through', up.sessionForConversation(caller), caller)
@@ -179,7 +179,7 @@ console.log('\n=== 6. 目录请求与推理请求使用同一串 v2 UA ===')
 {
   // The host still passes an attribution UA (its API is unchanged); the v2
   // fingerprint means this lane cannot put it on the wire.
-  const attributionUserAgent = 'our-free-model-standalone/2.3.0'
+  const attributionUserAgent = 'route-models-standalone/2.3.0'
   await getJson('/inference/v1/models', { attributionUserAgent })
   check('目录请求使用 v2 指纹 UA', seen.at(-1).headers['user-agent'], up.CLIENT_UA)
   await postStreamed({
@@ -191,7 +191,7 @@ console.log('\n=== 6. 目录请求与推理请求使用同一串 v2 UA ===')
     timeoutMs: 5000,
   })
   check('推理请求使用同一串', seen.at(-1).headers['user-agent'], up.CLIENT_UA)
-  const unrelated = 'other-client/3.0 (+https://example.com/our-free-model-standalone)'
+  const unrelated = 'other-client/3.0 (+https://example.com/route-models-standalone)'
   await getJson('/inference/v1/models', { attributionUserAgent: unrelated })
   check('任何归属串都不再改变线上 UA', seen.at(-1).headers['user-agent'], up.CLIENT_UA)
 }

@@ -8,9 +8,8 @@
  * against the gateway is separate and costs minutes and quota, so it stays a
  * deliberate act: `node scripts/host-selftest.mjs`.
  *
- * The default includes the manifest check because shipping a manifest that
- * disagrees with its files breaks the in-app upgrade for every user at once
- * (issue #1), and nothing else fails when that happens.
+ * The default includes the bundle check because a stale generated payload tests
+ * yesterday's code while the sources look updated.
  */
 import { spawn } from 'node:child_process'
 import path from 'node:path'
@@ -31,47 +30,26 @@ if (!['all', 'contributor', 'release'].includes(options.mode)) {
   process.exit(1)
 }
 const { mode, only } = options
-const releaseSuites = new Set(['manifest', 'legacy-payload', 'release', 'catalog', 'legacy-upgrade', 'engine-payload'])
+const releaseSuites = new Set(['legacy-payload', 'catalog'])
 
 const suites = [
-  ['manifest', 'build-manifest.mjs', ['--check']],
-  // The shipped bundles (token-saver, o2a, core) and the engine parts must
-  // match their sources; a stale src/o2a.js would make every suite below test
-  // yesterday's shaping while src/o2a/ already looks updated.
+  // The shipped bundles (token-saver, o2a, core) must match their sources; a
+  // stale src/o2a.js would make every suite below test yesterday's shaping
+  // while src/o2a/ already looks updated.
   ['legacy-payload', 'build-legacy-payload.mjs', ['--check']],
-  ['release', 'release-e2e.mjs', []],
-  ['legacy-upgrade', 'legacy-upgrade-test.mjs', mode === 'contributor' ? [] : ['--production']],
-  ['engine-payload', 'engine-payload-test.mjs', []],
-  ['release-preparation', 'release-preparation-test.mjs', []],
   ['client-lint', 'client-lint.mjs', []],
-  ['sponsor', 'sponsor-test.mjs', []],
   ['heatmap', 'heatmap-test.mjs', []],
   ['trust', 'trust-test.mjs', []],
   ['sanitize', 'sanitize-test.mjs', []],
   ['feed', 'feed-test.mjs', []],
-  ['picks', 'picks-test.mjs', []],
-  ['picks-ui', 'picks-ui-test.mjs', []],
   ['stat-bucket-ui', 'stat-bucket-ui-test.mjs', []],
   ['free-pool', 'free-pool-test.mjs', []],
-  ['updater', 'updater-test.mjs', []],
-  ['upgrade-ui', 'upgrade-ui-test.mjs', []],
   ['reload', 'reload-test.mjs', []],
   ['forward', 'forward-test.mjs', []],
   ['gemini-gateway', 'gemini-gateway-test.mjs', []],
   ['private-file', 'private-file-permissions-test.mjs', []],
   ['subscriptions', 'subscriptions-test.mjs', []],
   ['subscription-completion', 'subscription-completion-test.mjs', []],
-  ['subscription-wiring', 'subscription-wiring-test.mjs', []],
-  ['magpie-engine', 'magpie-engine-test.mjs', []],
-  ['engine-transport', 'engine-transport-test.mjs', []],
-  ['magpie-models', 'magpie-models-test.mjs', []],
-  ['magpie-policy', 'magpie-policy-test.mjs', []],
-  ['magpie-plugin', 'magpie-plugin-test.mjs', []],
-  ['workbench', 'workbench-test.mjs', []],
-  ['workbench-library', 'workbench-library-test.mjs', []],
-  ['workbench-management', 'workbench-management-test.mjs', []],
-  ['client-terminal', 'client-terminal-test.mjs', []],
-  ['quota-routing', 'quota-routing-test.mjs', []],
   ['turn-accounting', 'turn-accounting-test.mjs', []],
   ['chan-relay', 'chan-relay-test.mjs', []],
   ['channel-pack', 'channel-pack-test.mjs', []],
@@ -85,21 +63,6 @@ const suites = [
   ['open-external', 'open-external-test.mjs', []],
   ['channel-image-pricing', 'channel-image-pricing-test.mjs', []],
   ['forward-boot', 'forward-boot-test.mjs', []],
-  ['standalone', 'standalone-test.mjs', []],
-  ['desktop', 'desktop-test.mjs', []],
-  ['desktop-update', 'desktop-update-test.mjs', []],
-  ['standalone-desktop-regression', 'standalone-desktop-regression-test.mjs', []],
-  ['standalone-page-lifecycle', 'standalone-page-lifecycle-test.mjs', []],
-  ['standalone-management', 'standalone-management-test.mjs', []],
-  ['standalone-lan', 'standalone-lan-test.mjs', []],
-  ['standalone-frontend', 'standalone-frontend-test.mjs', []],
-  ['standalone-client-regression', 'standalone-client-regression-test.mjs', []],
-  ['standalone-channels', 'standalone-channels-test.mjs', []],
-  ['standalone-channel-filter', 'standalone-channel-filter-test.mjs', []],
-  ['standalone-model-operation', 'standalone-model-operation-test.mjs', []],
-  ['standalone-settings-host', 'standalone-settings-host-test.mjs', []],
-  ['standalone-login-terminal', 'standalone-login-terminal-test.mjs', []],
-  ['standalone-package', 'standalone-package-test.mjs', ['--sources-only']],
   ['bun-fetch', 'bun-fetch-test.mjs', []],
   ['free-lane-compat', 'free-lane-compat-test.mjs', []],
   ['stable-session', 'stable-session-test.mjs', []],
@@ -113,11 +76,9 @@ const suites = [
   ['free-lane-wire', 'free-lane-wire-test.mjs', []],
   ['freetier-gate', 'freetier-gate-test.mjs', []],
   ['sniff', 'sniff-test.mjs', []],
-  ['stream-failure', 'stream-failure-test.mjs', []],
   ['truncation', 'truncation-test.mjs', []],
   ['recovery', 'recovery-test.mjs', []],
   ['retry-safety', 'retry-safety-test.mjs', []],
-  ['usage-sanitize', 'usage-sanitize-test.mjs', []],
   ['speed-stat', 'speed-stat-test.mjs', []],
   ['picker', 'picker-test.mjs', []],
   ['tui', 'tui-test.mjs', []],
@@ -137,23 +98,16 @@ const suites = [
   ['rtk', 'rtk-test.mjs', []],
   ['rtk-shape', 'rtk-shape-test.mjs', []],
   ['local-optimize', 'local-optimize-test.mjs', []],
-  ['registry', 'registry-test.mjs', []],
   ['route', 'route-test.mjs', []],
-  ['combo-advance', 'combo-advance-test.mjs', []],
   ['prompt-saver', 'prompt-saver-test.mjs', []],
   ['anthropic', 'anthropic-test.mjs', []],
-  ['aggregate', 'aggregate-test.mjs', []],
-  ['aggregate-wiring', 'aggregate-wiring-test.mjs', []],
   ['model-test', 'model-test-test.mjs', []],
   ['model-test-probe-race', 'model-test-probe-race-test.mjs', []],
   ['model-test-finish-integration', 'model-test-finish-integration-test.mjs', []],
   ['bench-integration', 'bench-integration-test.mjs', []],
-  ['plugin-bench-ui', 'plugin-bench-ui-test.mjs', []],
   ['gateway-source', 'gateway-source-test.mjs', []],
   ['gateway-disconnect', 'gateway-disconnect-test.mjs', []],
-  ['standalone-nav', 'standalone-nav-test.mjs', []],
-].filter(([name]) => (mode === 'contributor' ? !['manifest', 'release'].includes(name)
-  : mode === 'release' ? releaseSuites.has(name) : true)
+].filter(([name]) => (mode === 'release' ? releaseSuites.has(name) : true)
   && (only === null || name.startsWith(only)))
 
 if (only !== null && suites.length === 0) {

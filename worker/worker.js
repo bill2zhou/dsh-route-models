@@ -176,7 +176,7 @@ export default {
           'content-type': 'application/json',
           'accept': request.headers.get('accept') ?? (route.body === true ? 'text/event-stream' : 'application/json'),
           'authorization': `Bearer ${env.UPSTREAM_API_KEY ?? ''}`,
-          'user-agent': 'dsh-our-free-model-gateway',
+          'user-agent': 'dsh-route-models-gateway',
         },
         body: route.body === true ? body : undefined,
         // Carry the caller's cancellation into the relay connection. Without

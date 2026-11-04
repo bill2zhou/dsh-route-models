@@ -127,7 +127,7 @@ export function fromGeminiRequest(body, model) {
       if (!content.length) return
       messages.push({
         role: role === 'model' ? 'assistant' : 'user', content,
-        ...(role === 'model' ? { source: { kind: 'model', provider: 'our-free-model', model } } : {}),
+        ...(role === 'model' ? { source: { kind: 'model', provider: 'route-models', model } } : {}),
       })
       content = []
     }

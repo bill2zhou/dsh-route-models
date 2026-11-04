@@ -308,18 +308,18 @@ console.log('ok  UI: lost cancellation acknowledgement converges; already commit
     apply(ctx, {})
     await until(() => routes.some(route => route.kind === 'prefix'), { what: 'EAC Host API' })
     const handler = routes.find(route => route.kind === 'prefix').handler
-    const started = await callRoute(handler, 'POST', '/api/our-free-model/eac/login/start')
+    const started = await callRoute(handler, 'POST', '/api/route-models/eac/login/start')
     assert.equal(started.status, 200); assert.equal(started.json.opened, true)
     assert.deepEqual(order, ['registered', 'browser'], 'Host registers the link before launching the system browser')
     const actualLink = started.json.link
-    const collecting = callRoute(handler, 'GET', `/api/our-free-model/eac/login/poll?link=${actualLink}`)
+    const collecting = callRoute(handler, 'GET', `/api/route-models/eac/login/poll?link=${actualLink}`)
     await flush()
-    const cancelled = await callRoute(handler, 'POST', `/api/our-free-model/eac/login/cancel?link=${actualLink}`)
+    const cancelled = await callRoute(handler, 'POST', `/api/route-models/eac/login/cancel?link=${actualLink}`)
     assert.deepEqual(cancelled, { status: 200, json: { ok: true } })
     routeDelivery.resolve()
     assert.deepEqual(await collecting, { status: 502, json: { error: 'cancelled' } })
     assert.equal(readEacUser(), null, 'the actual Host cancel route prevents local persistence')
-    assert.equal((await callRoute(handler, 'POST', '/api/our-free-model/eac/login/cancel?link=bad')).status, 400)
+    assert.equal((await callRoute(handler, 'POST', '/api/route-models/eac/login/cancel?link=bad')).status, 400)
     console.log('ok  Host routes: pre-registration precedes browser launch; real cancellation endpoint blocks a late token')
   } finally {
     routeDelivery.resolve()

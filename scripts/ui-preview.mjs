@@ -199,7 +199,7 @@ const feedServer = http.createServer((req, res) => {
 await new Promise(resolve => feedServer.listen(0, '127.0.0.1', resolve))
 feedServer.unref()
 const feedPort = feedServer.address().port
-const dataDir = path.join(home, 'our-free-model')
+const dataDir = path.join(home, 'route-models')
 fs.mkdirSync(dataDir, { recursive: true })
 fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({
   enabled: true,
@@ -299,11 +299,11 @@ say(`plugin booted; DSH_HOME ${home}`)
   // The boot probe round has to land first: the adapter resolves a model id
   // through the catalog the probe builds, so a turn sent before it lands fails to
   // resolve rather than answering.
-  await until(async () => (await callRoute(api(), 'GET', '/api/our-free-model/summary')).json?.catalog?.some(row => row.id === 'deepseek-v4-flash-free'),
+  await until(async () => (await callRoute(api(), 'GET', '/api/route-models/summary')).json?.catalog?.some(row => row.id === 'deepseek-v4-flash-free'),
     { what: 'the boot listing round', timeoutMs: 30000 })
   const adapter = ctx.__captured.adapters[0]?.adapter
   const options = {
-    provider: 'our-free-model',
+    provider: 'route-models',
     model: 'deepseek-v4-flash-free',
     messages: [
       { role: 'user', content: [{ type: 'text', text: 'what changed?' }] },
@@ -321,22 +321,22 @@ say(`plugin booted; DSH_HOME ${home}`)
   await until(() => freeLane.requests.length > 0, { what: 'the upstream request', timeoutMs: 5000 })
 }
 await until(async () => {
-  const stats = (await callRoute(api(), 'GET', '/api/our-free-model/stats')).json
+  const stats = (await callRoute(api(), 'GET', '/api/route-models/stats')).json
   return Number(stats?.savings?.saved) > 0
 }, { what: 'a non-zero savings measurement', timeoutMs: 15000 })
 
-const statsView = (await callRoute(api(), 'GET', '/api/our-free-model/stats')).json
+const statsView = (await callRoute(api(), 'GET', '/api/route-models/stats')).json
 say(`savings: ${JSON.stringify(statsView.savings)}`)
-await until(async () => (await callRoute(api(), 'GET', '/api/our-free-model/clients')).json?.running === true,
+await until(async () => (await callRoute(api(), 'GET', '/api/route-models/clients')).json?.running === true,
   { what: 'the forward listener to be up', timeoutMs: 30000 })
 // The first feed poll lands 12 s after boot. Waiting for it here is what makes the
 // news section identical in every pass, and the report below is what proves the run
 // read the local copy instead of falling through to the shipped GitHub sources.
-await until(async () => (await callRoute(api(), 'GET', '/api/our-free-model/announcements')).json?.fetchedAt > 0,
+await until(async () => (await callRoute(api(), 'GET', '/api/route-models/announcements')).json?.fetchedAt > 0,
   { what: 'the first feed poll', timeoutMs: 30000 })
-const feedView = (await callRoute(api(), 'GET', '/api/our-free-model/announcements')).json
+const feedView = (await callRoute(api(), 'GET', '/api/route-models/announcements')).json
 say(`feed: ${(feedView.items ?? []).length} item(s) from "${feedView.source}" — local feed server answered ${feedRequests} request(s)${feedView.error ? `, error ${feedView.error}` : ''}`)
-const summaryView = (await callRoute(api(), 'GET', '/api/our-free-model/summary')).json
+const summaryView = (await callRoute(api(), 'GET', '/api/route-models/summary')).json
 say(`forward listener: running=${summaryView.settings.forward.running} port=${summaryView.settings.forward.actualPort}`)
 say(`catalog: ${summaryView.catalog.length} rows (free ${summaryView.catalog.filter(row => row.channel === undefined || row.channel === null).length}, aggregate ${summaryView.catalog.filter(row => row.channel === 'aggregate').length}, combo ${summaryView.catalog.filter(row => row.channel === 'combo').length})`)
 
@@ -408,13 +408,13 @@ async function handle(req, res) {
   // The push stream. The plugin registers it as its own exact route (not part of
   // the prefix handler below), so the shell answers it: an EventSource that never
   // opens would leave the bundle reconnecting in the background for the whole run.
-  if (url.pathname === '/api/our-free-model/events') {
+  if (url.pathname === '/api/route-models/events') {
     res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive' })
     res.write(`event: hello\ndata: ${JSON.stringify({ version: 'preview', announcements: { unread: 0 }, update: { available: false }, reloadedAt: 0 })}\n\n`)
     req.on('close', () => res.end())
     return
   }
-  if (url.pathname.startsWith('/api/our-free-model')) {
+  if (url.pathname.startsWith('/api/route-models')) {
     const handler = api()
     if (handler === undefined) return send(503, 'application/json; charset=utf-8', '{"error":"the plugin route is not up yet"}')
     // Adapt the real request into the (req, res) pair the handler was written
@@ -835,7 +835,7 @@ function shellHtml({ theme }) {
 <html lang="zh">
 <head>
 <meta charset="utf-8">
-<title>Our Free Model — browser preview</title>
+<title>Route Models — browser preview</title>
 <style>
 ${theme}
 html,body{min-height:100%}
@@ -980,14 +980,14 @@ window.__ModuleLoader__ = {
     __disposers: disposers,
   }
   Object.defineProperty(ctx, 'connection', {
-    get() { throw new Error('our-free-model read ctx.connection without inject (cordis withholds it)') },
+    get() { throw new Error('route-models read ctx.connection without inject (cordis withholds it)') },
   })
 
   let root = null
   const mount = () => {
-    const entry = registrations.section.find(row => row.options.id === 'our-free-model') ?? registrations.section[0]
+    const entry = registrations.section.find(row => row.options.id === 'route-models') ?? registrations.section[0]
     if (entry === undefined) { window.__crash('the bundle registered no settings.section component'); return }
-    const t = locale.bind(entry.options.locale ?? 'settings.ourFreeModel')
+    const t = locale.bind(entry.options.locale ?? 'settings.routeModels')
     if (root === null) root = ReactDOM.createRoot(document.getElementById('root'))
     root.render(React.createElement(entry.component, { t }))
   }

@@ -166,10 +166,10 @@ export function selfReload(ctx, options = {}) {
     const internal = loader.internal
     const backup = purgeCaches(internal, packageUrl)
     if (backup.esm.size === 0) {
-      logger.warn?.('our-free-model: host module cache is unavailable; hot reload requires a host restart')
+      logger.warn?.('route-models: host module cache is unavailable; hot reload requires a host restart')
       return { ok: false, error: 'safe hot reload is unavailable in this host; restart the host to load installed files', restored: true, restartRequired: true }
     }
-    logger.info?.(`our-free-model: hot reload purging ${backup.esm.size} cached module(s)`)
+    logger.info?.(`route-models: hot reload purging ${backup.esm.size} cached module(s)`)
 
     const importFresh = async url => loader.unwrapExports(await loader.import(url, () => []))
     let replacement
@@ -190,7 +190,7 @@ export function selfReload(ctx, options = {}) {
       restoreCaches(internal, backup)
       return { ok: false, error: `re-import failed, old code still running (${error?.message ?? error})`, restored: true }
     }
-    globalThis[Symbol.for('our-free-model.last-reload')] = { at: Date.now(), purged: backup.esm.size }
+    globalThis[Symbol.for('route-models.last-reload')] = { at: Date.now(), purged: backup.esm.size }
 
     try {
       registry.delete(previous)
@@ -198,7 +198,7 @@ export function selfReload(ctx, options = {}) {
     } catch (error) {
       // Old fibers are gone regardless; the new registration below is still the
       // right move — the error is logged, not propagated, to not skip it.
-      logger.warn?.(`our-free-model: hot reload dispose reported ${error?.message ?? error}`)
+      logger.warn?.(`route-models: hot reload dispose reported ${error?.message ?? error}`)
     }
 
     try {
@@ -213,7 +213,7 @@ export function selfReload(ctx, options = {}) {
         created.push(fresh)
       }
       await Promise.all(created.map(fiber => fiber.await()))
-      logger.info?.(`our-free-model: hot reload complete, ${created.length} fiber(s) re-registered`)
+      logger.info?.(`route-models: hot reload complete, ${created.length} fiber(s) re-registered`)
       return { ok: true, version: String(replacement.version ?? ''), fibers: created.length }
     } catch (error) {
       // The replacement failed to start. Put the old code back both on disk
@@ -263,7 +263,7 @@ export function watchPackage(packageDir, { onChange, logger = console, debounceM
   try {
     watcher = fs.watch(packageDir, { recursive: true })
   } catch (error) {
-    logger.warn?.(`our-free-model: could not watch ${packageDir} (${error?.message ?? error})`)
+    logger.warn?.(`route-models: could not watch ${packageDir} (${error?.message ?? error})`)
     return () => {}
   }
   const schedule = () => {
@@ -277,7 +277,7 @@ export function watchPackage(packageDir, { onChange, logger = console, debounceM
     timer.unref?.()
   }
   watcher.on('change', schedule)
-  watcher.on('error', error => logger.warn?.(`our-free-model: watcher error (${error?.message ?? error})`))
+  watcher.on('error', error => logger.warn?.(`route-models: watcher error (${error?.message ?? error})`))
   return () => {
     paused = true
     clearTimeout(timer)

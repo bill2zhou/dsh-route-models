@@ -108,7 +108,7 @@ const rejecting = { base: `http://127.0.0.1:${rejectingServer.address().port}` }
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ofm-wiring-'))
 process.env.DSH_HOME = home
 const forwardPort = await freePort()
-const dataDir = path.join(home, 'our-free-model')
+const dataDir = path.join(home, 'route-models')
 fs.mkdirSync(dataDir, { recursive: true })
 fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({
   enabled: true,
@@ -149,9 +149,9 @@ apply(ctx, {})
 const api = () => routes.find(route => route.kind === 'prefix')?.handler
 await until(() => api() !== undefined, { what: 'the settings API route', timeoutMs: 5000 })
 const adapter = ctx.__captured.adapters[0]?.adapter
-const summary = () => callRoute(api(), 'GET', '/api/our-free-model/summary')
-const get = url => callRoute(api(), 'GET', `/api/our-free-model${url}`)
-const post = (url, body) => callRoute(api(), 'POST', `/api/our-free-model${url}`, body)
+const summary = () => callRoute(api(), 'GET', '/api/route-models/summary')
+const get = url => callRoute(api(), 'GET', `/api/route-models${url}`)
+const post = (url, body) => callRoute(api(), 'POST', `/api/route-models${url}`, body)
 
 // ── 1. the catalog the picker reads ──────────────────────────────────────────
 {
@@ -186,7 +186,7 @@ const post = (url, body) => callRoute(api(), 'POST', `/api/our-free-model${url}`
 {
   const before = freeLane.requests.length
   const options = {
-    provider: 'our-free-model',
+    provider: 'route-models',
     model: 'deepseek-v4-flash-free',
     messages: [
       { role: 'user', content: [{ type: 'text', text: 'what changed?' }] },
@@ -230,7 +230,7 @@ const post = (url, body) => callRoute(api(), 'POST', `/api/our-free-model${url}`
   const beforeRefuse = refusing.requests.length
   const beforeFree = freeLane.requests.length
   const options = {
-    provider: 'our-free-model',
+    provider: 'route-models',
     model: 'combo:never-fails',
     messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
     sessionId: 'wiring:combo',
@@ -268,7 +268,7 @@ const post = (url, body) => callRoute(api(), 'POST', `/api/our-free-model${url}`
   // that follows — that such turns share one upstream session.
   const warnedBefore = warnLines()
   const idLess = {
-    provider: 'our-free-model',
+    provider: 'route-models',
     model: 'deepseek-v4-flash-free',
     messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }],
   }
@@ -281,7 +281,7 @@ const post = (url, body) => callRoute(api(), 'POST', `/api/our-free-model${url}`
   // A named conversation keeps the same upstream session across turns.
   const beforeRefuse = refusing.requests.length
   const again = {
-    provider: 'our-free-model',
+    provider: 'route-models',
     model: 'combo:never-fails',
     messages: [{ role: 'user', content: [{ type: 'text', text: 'again' }] }],
     sessionId: 'wiring:combo',

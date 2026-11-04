@@ -28,7 +28,46 @@ export function resolveDshHome() {
   return path.join(os.homedir(), '.dsh')
 }
 
-export const DATA_DIR_NAME = 'our-free-model'
+export const DATA_DIR_NAME = 'route-models'
+
+/**
+ * Directory names this plugin wrote under before it was renamed.
+ *
+ * Boot adopts the first one that still exists, so an install upgrading across
+ * the rename keeps its settings, statistics and account files instead of
+ * silently starting over with an empty directory.
+ */
+const LEGACY_DATA_DIR_NAMES = ['our-free-model']
+
+/**
+ * Take over the directory an earlier name used, once.
+ *
+ * Rename first — it is atomic and leaves no duplicate. A rename across devices
+ * fails (EXDEV), and there a copy is the only way through; the old tree is left
+ * in place on purpose, because a migration that half-failed must not be the
+ * thing that deleted the user's settings.
+ */
+export function adoptLegacyDataDir(home, dataDir, logger = console) {
+  if (fs.existsSync(dataDir)) return dataDir
+  for (const legacyName of LEGACY_DATA_DIR_NAMES) {
+    const legacy = path.resolve(home, legacyName)
+    if (!fs.existsSync(legacy)) continue
+    try {
+      fs.renameSync(legacy, dataDir)
+      logger.info?.(`route-models: adopted the ${legacyName} data directory`)
+      return dataDir
+    } catch {
+      try {
+        fs.cpSync(legacy, dataDir, { recursive: true })
+        logger.info?.(`route-models: copied the ${legacyName} data directory`)
+        return dataDir
+      } catch (error) {
+        logger.warn?.(`route-models: could not adopt ${legacy} (${error?.message ?? error})`)
+      }
+    }
+  }
+  return dataDir
+}
 
 /** Bumped when the shape or the meaning of a stored field changes. */
 export const STATS_VERSION = 3
@@ -128,7 +167,7 @@ export class JsonStore {
       this.dirty = true
       if (!this.writeFailed) {
         this.writeFailed = true
-        this.log?.(`our-free-model: could not persist ${path.basename(this.file)} (${error?.message ?? error}); changes are kept in memory only`)
+        this.log?.(`route-models: could not persist ${path.basename(this.file)} (${error?.message ?? error}); changes are kept in memory only`)
       }
     }
   }
@@ -163,6 +202,11 @@ export const SETTINGS_INITIAL = {
   exposeRegionModels: true,
   /** Advertisement only: retain catalog entries and historical model resolution. */
   hiddenModelIds: [],
+  /** Legacy group switches, kept inert: the anonymous free lane, the Kilo
+   *  channel and the EAC lane they once hid were removed from the plugin, and
+   *  every surviving catalog row carries a channel of its own. The keys stay
+   *  accepted (stored, echoed, never enforced) so an older settings file and an
+   *  older client keep round-tripping unchanged. */
   hideFreeModels: false,
   hideEacModels: false,
   /** Minutes between background catalog refreshes. Automatic availability
@@ -202,27 +246,6 @@ export const SETTINGS_INITIAL = {
     rtk: true,
     prompts: { caveman: 'off', ponytail: 'off' },
   },
-  /** The aggregate lane: third-party providers reached with the user's own key.
-   *  Keys live in this 0600 file, never in a shared settings document, and the
-   *  API masks them on the way out. */
-  aggregate: {
-    enabled: true,
-    providers: {},
-  },
-  /** Named fallback chains. A combo is a virtual model whose answer comes from
-   *  the first link that produces output; see src/combos.js.
-   *  Ships one sensible default so a fresh install shows a single "推荐免费组"
-   *  entry instead of a dozen free models; users can edit/disable it in settings. */
-  combos: [
-    {
-      id: 'combo:recommended-free',
-      name: '推荐免费组',
-      models: ['deepseek-v4.1-flash-free', 'glm-5.3-flash-free', 'space-bunny-free'],
-      strategy: 'fallback',
-      stickyLimit: 1,
-      enabled: true,
-    },
-  ],
   /** The five local answers that avoid a provider call entirely: a quota probe,
    *  a shell command prefix, a session title, a suggestion, a filepath list.
    *  They are pure request-shape matches, so a false positive would answer a real
@@ -240,28 +263,22 @@ export const SETTINGS_INITIAL = {
   feedUrl: '',
   /** Minutes between announcement-feed polls; floored at 5. */
   feedPollMinutes: 30,
-  /** Raise OS-level notifications for new announcements and updates (the
-   *  browser asks for permission on the user's click). */
+  /** Raise OS-level notifications for new announcements (the browser asks for
+   *  permission on the user's click). */
   notifyOs: false,
   /** Announcement ids the user has acknowledged. */
   announcementsAcked: [],
-  /** Hours between automatic update checks; 0 disables them entirely. */
-  updateCheckHours: 6,
-  /** Version whose update availability has already been pushed. */
-  updateNotifiedFor: '',
   /** Watch the installed package and hot-reload on change (development aid). */
   autoReloadWatch: false,
-  /** Who owns the installed bytes: `self` updates in-app from the repository;
-   *  `managed` — written by a distribution pack's installer, or passed as the
-   *  bundle config `distribution` — stands the self-updater, the announcement
-   *  feed and the hot reload down. The settings API never accepts this field,
-   *  so an install that shipped managed stays managed. */
+  /** Who owns the installed bytes: `self` keeps its own files; `managed` —
+   *  written by a distribution pack's installer, or passed as the bundle
+   *  config `distribution` — stands the announcement feed and the hot reload
+   *  down. The settings API never accepts this field, so an install that
+   *  shipped managed stays managed. */
   distribution: 'self',
   /** When the running code was hot-reloaded into place, and how many times. */
   reloadedAt: 0,
   reloadCount: 0,
-  /** Version installed by the in-app upgrader, for the settings page. */
-  installedVersion: '',
 }
 
 const validHiddenModelId = value => typeof value === 'string' && value.length > 0
@@ -295,11 +312,17 @@ export function validateModelVisibility(patch) {
   return result
 }
 
+/**
+ * Whether one catalog row is hidden from the picker.
+ *
+ * Only the per-id list still means something: the two group switches belonged
+ * to the removed lanes (the anonymous free row carried no channel, Kilo rows
+ * carried `kilo`, the co-paid lane `eac`), and no surviving row can match them.
+ * The keys are still accepted and echoed so an older settings file and an older
+ * client round-trip unchanged.
+ */
 export function isModelHidden(entry, settings) {
-  return (Array.isArray(settings?.hiddenModelIds) && settings.hiddenModelIds.includes(entry.id))
-    || (settings?.hideFreeModels === true && (!entry.channel || entry.channel === 'anonymous' || entry.channel === 'kilo'
-      || (entry.channel === 'combo' && Array.isArray(entry.lanes) && entry.lanes.length > 0 && entry.lanes.every(lane => lane === 'free'))))
-    || (settings?.hideEacModels === true && entry.channel === 'eac')
+  return Array.isArray(settings?.hiddenModelIds) && settings.hiddenModelIds.includes(entry.id)
 }
 
 export const STATS_INITIAL = {

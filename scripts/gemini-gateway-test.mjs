@@ -144,7 +144,7 @@ try {
     run = async request => {
       const rows = request.messages
       assert.equal(rows[0].role, 'assistant')
-      assert.deepEqual(rows[0].source, { kind: 'model', provider: 'our-free-model', model })
+      assert.deepEqual(rows[0].source, { kind: 'model', provider: 'route-models', model })
       assert.equal(rows[1].role, 'user')
       assert.equal(rows[1].content[0].text, 'before')
       assert.equal(rows[2].toolCallId, 'explicit')

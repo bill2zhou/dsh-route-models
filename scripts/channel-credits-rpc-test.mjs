@@ -45,7 +45,11 @@ export async function verifyChannelCreditsRpc({ ctx, call, creds, adapters }) {
       } else throw new Error(`未预期的替身端点：${pathname}`)
       return Response.json(body)
     }
-    for (const provider of providers.filter(id => id !== 'zcode' && id !== 'gemini')) {
+    // The three channels this build adds on top of the original ten (CodeArts,
+    // WorkBuddy 国内版 / 国际版) answer credits through their own paths, so the
+    // shared "every provider reads the pool credential" fixture skips them too.
+    const NEW_CHANNELS = new Set(['codearts', 'buddy', 'workbuddy'])
+    for (const provider of providers.filter(id => id !== 'zcode' && id !== 'gemini' && !NEW_CHANNELS.has(id))) {
       resolvedRefs.length = 0
       const result = await call('credits.balances', { provider })
       assert.equal(result.ok, true)

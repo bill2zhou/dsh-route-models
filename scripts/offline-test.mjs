@@ -55,8 +55,8 @@ async function boot({ config = {}, settings = {} } = {}) {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ofm-offline-'))
   process.env.DSH_HOME = home
   if (Object.keys(settings).length > 0) {
-    fs.mkdirSync(path.join(home, 'our-free-model'), { recursive: true })
-    fs.writeFileSync(path.join(home, 'our-free-model', 'settings.json'), JSON.stringify(settings))
+    fs.mkdirSync(path.join(home, 'route-models'), { recursive: true })
+    fs.writeFileSync(path.join(home, 'route-models', 'settings.json'), JSON.stringify(settings))
   }
   const routes = []
   const ctx = fakeContext({ inject, mounted: ['llm', 'webServer', 'attachments'], onRegister: route => routes.push(route) })
@@ -72,7 +72,7 @@ function dispose(ctx) {
   }
 }
 
-const dataDir = home => path.join(home, 'our-free-model')
+const dataDir = home => path.join(home, 'route-models')
 
 // ── offline, no key: the plugin must still be usable ─────────────────────────
 {
@@ -97,7 +97,7 @@ const dataDir = home => path.join(home, 'our-free-model')
   const models = await adapter.listModels(ROUTE_MAIN)
   check('the fallback roster is advertised with no network and no key', models.length > 0, true)
 
-  const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+  const summary = await callRoute(api(), 'GET', '/api/route-models/summary')
   check('the settings API answers offline', summary.status, 200)
   check('and lists the same roster with an availability verdict surface',
     (summary.json.catalog ?? []).length > 0 && 'availability' in (summary.json.catalog?.[0] ?? {}), true)
@@ -119,7 +119,7 @@ const dataDir = home => path.join(home, 'our-free-model')
   // The forward listener is part of the no-key promise: other local harnesses
   // get an OpenAI endpoint that needs only its own bearer, minted locally.
   const forwardPort = await freePort()
-  await callRoute(api(), 'POST', '/api/our-free-model/settings', { forward: { enabled: true, host: '127.0.0.1', port: forwardPort } })
+  await callRoute(api(), 'POST', '/api/route-models/settings', { forward: { enabled: true, host: '127.0.0.1', port: forwardPort } })
   const stored = JSON.parse(fs.readFileSync(path.join(dataDir(home), 'settings.json'), 'utf8'))
   check('no credential field is configured or required',
     Object.keys(stored).filter(key => /\b(api_?key|secret|passw|token|authorization)\b/i.test(key) && key !== 'forwardKey'), [])
@@ -139,7 +139,7 @@ const dataDir = home => path.join(home, 'our-free-model')
     body: JSON.stringify({ model: 'no-such-model-free', messages: [{ role: 'user', content: 'hi' }] }),
   }).catch(() => null)
   check('a model the roster does not carry answers 404 model-shaped', unknown?.status, 404)
-  await callRoute(api(), 'POST', '/api/our-free-model/settings', { forward: { enabled: false, host: '127.0.0.1', port: forwardPort } })
+  await callRoute(api(), 'POST', '/api/route-models/settings', { forward: { enabled: false, host: '127.0.0.1', port: forwardPort } })
 
   dispose(ctx)
   fs.rmSync(home, { recursive: true, force: true })
@@ -155,21 +155,21 @@ const dataDir = home => path.join(home, 'our-free-model')
   const address = `https://outlet.example.com/s/${token}`
   const { ctx, api, home } = await boot({ settings: { egress: { enabled: false, mode: 'subscription', url: address, mihomoPath: '' } } })
 
-  const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+  const summary = await callRoute(api(), 'GET', '/api/route-models/summary')
   const egress = summary.json.settings.egress
   check('the subscription URL never rides along in a payload', 'url' in egress, false)
   check('and the whole summary carries none of the token it holds', JSON.stringify(summary.json).includes(token), false)
   check('the panel is told a URL exists, and gets the masked host only', [egress.hasUrl, egress.urlLabel], [true, 'https://outlet.example.com'])
 
-  const revealed = await callRoute(api(), 'GET', '/api/our-free-model/egress/url')
+  const revealed = await callRoute(api(), 'GET', '/api/route-models/egress/url')
   check("the value is served on the settings page's own ask", revealed.json.url, address)
 
-  const kept = await callRoute(api(), 'POST', '/api/our-free-model/settings', { egress: { mode: 'client', mihomoPath: '' } })
+  const kept = await callRoute(api(), 'POST', '/api/route-models/settings', { egress: { mode: 'client', mihomoPath: '' } })
   check('a patch that carries no URL keeps the stored one', kept.status, 200)
   check('— in the file', JSON.parse(fs.readFileSync(path.join(dataDir(home), 'settings.json'), 'utf8')).egress.url, address)
   check('— and still not in the answer', 'url' in (kept.json.settings.egress ?? {}), false)
 
-  const cleared = await callRoute(api(), 'POST', '/api/our-free-model/settings', { egress: { enabled: false, url: '' } })
+  const cleared = await callRoute(api(), 'POST', '/api/route-models/settings', { egress: { enabled: false, url: '' } })
   check('clearing it is still possible, and says so in the payload', [cleared.status, cleared.json.settings.egress.hasUrl], [200, false])
 
   dispose(ctx)
@@ -180,30 +180,30 @@ const dataDir = home => path.join(home, 'our-free-model')
 {
   const { ctx, api, home } = await boot({ config: { distribution: 'managed' } })
 
-  const meta = await callRoute(api(), 'GET', '/api/our-free-model/meta')
+  const meta = await callRoute(api(), 'GET', '/api/route-models/meta')
   check('the config flag puts /meta under managed distribution', meta.json.distribution, 'managed')
 
-  const status = await callRoute(api(), 'GET', '/api/our-free-model/update/status')
+  const status = await callRoute(api(), 'GET', '/api/route-models/update/status')
   check('update status reports managed rather than availability', [status.json.managed, status.json.available], [true, false])
 
-  const refusedCheck = await callRoute(api(), 'POST', '/api/our-free-model/update/check')
+  const refusedCheck = await callRoute(api(), 'POST', '/api/route-models/update/check')
   check('a manual update check is refused', refusedCheck.status, 409)
   check('with the reason stated', /managed/i.test(refusedCheck.json?.error ?? ''), true)
-  check('an update apply is refused too', (await callRoute(api(), 'POST', '/api/our-free-model/update/apply', {})).status, 409)
-  check('and hot reload, which would swap bytes under the manager', (await callRoute(api(), 'POST', '/api/our-free-model/reload')).status, 409)
+  check('an update apply is refused too', (await callRoute(api(), 'POST', '/api/route-models/update/apply', {})).status, 409)
+  check('and hot reload, which would swap bytes under the manager', (await callRoute(api(), 'POST', '/api/route-models/reload')).status, 409)
 
-  const announcements = await callRoute(api(), 'GET', '/api/our-free-model/announcements')
+  const announcements = await callRoute(api(), 'GET', '/api/route-models/announcements')
   check('the announcement feed reports its managed stand-down', [announcements.json.items, announcements.json.unread, announcements.json.source], [[], 0, 'managed'])
-  await callRoute(api(), 'POST', '/api/our-free-model/announcements/refresh')
-  const after = await callRoute(api(), 'GET', '/api/our-free-model/announcements')
+  await callRoute(api(), 'POST', '/api/route-models/announcements/refresh')
+  const after = await callRoute(api(), 'GET', '/api/route-models/announcements')
   check('a manual refresh stays a no-op', [after.json.items, after.json.source], [[], 'managed'])
   check('no feed fetch was attempted', ctx.__logs.filter(line => /feed|announcement/.test(line) && /fail|error/i.test(line)), [])
 
-  const flipped = await callRoute(api(), 'POST', '/api/our-free-model/settings', { distribution: 'self' })
-  const metaAfter = await callRoute(api(), 'GET', '/api/our-free-model/meta')
+  const flipped = await callRoute(api(), 'POST', '/api/route-models/settings', { distribution: 'self' })
+  const metaAfter = await callRoute(api(), 'GET', '/api/route-models/meta')
   check('the settings API cannot un-manage an installation', [flipped.status, metaAfter.json.distribution], [200, 'managed'])
 
-  const stillAlive = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+  const stillAlive = await callRoute(api(), 'GET', '/api/route-models/summary')
   check('the model lane is untouched by the gate', [stillAlive.status, (stillAlive.json.catalog ?? []).length > 0], [200, true])
   check('and no feed cache was written', fs.existsSync(path.join(dataDir(home), 'feed.json')), false)
 
@@ -214,9 +214,9 @@ const dataDir = home => path.join(home, 'our-free-model')
 // ── managed installation (settings file): same gate, installer's other door ──
 {
   const { ctx, api, home } = await boot({ settings: { distribution: 'managed' } })
-  const meta = await callRoute(api(), 'GET', '/api/our-free-model/meta')
+  const meta = await callRoute(api(), 'GET', '/api/route-models/meta')
   check('a pre-seeded settings file manages the plugin too', meta.json.distribution, 'managed')
-  check('and closes the same update route', (await callRoute(api(), 'POST', '/api/our-free-model/update/check')).status, 409)
+  check('and closes the same update route', (await callRoute(api(), 'POST', '/api/route-models/update/check')).status, 409)
   dispose(ctx)
   fs.rmSync(home, { recursive: true, force: true })
 }

@@ -175,7 +175,7 @@ for (const endpoint of ['/v1/chat/completions', '/v1/responses']) {
 await checkAsync('the shared model roster advertises each supported effort menu and its default (#74)', async () => {
   const snapshot = {
     settings: { defaultMaxTokens: 4096, exposeRegionModels: false },
-    membership: { 'our-free-model': ['free-thinking', 'declared-thinking', 'plain'], 'our-free-model-region': ['regional'] },
+    membership: { 'route-models': ['free-thinking', 'declared-thinking', 'plain'], 'route-models-region': ['regional'] },
     catalog: [
       { id: 'free-thinking', reasoning: true, maxOutput: 32768, contextWindow: 131072 },
       { id: 'declared-thinking', channel: 'eac', reasoning: true, efforts: ['low', 'high'], effortDefault: 'high', maxOutput: 8192 },
@@ -995,7 +995,7 @@ async function localListener(lane, onTrace) {
   const server = await startForwardServer({
     config: () => ({ host: '127.0.0.1', port: 0, enabled: true, key: 'k-test' }),
     complete: lane.complete,
-    modelRows: () => [{ id: 'mimo-v2.6-flash-free', created: 1, owned_by: 'our-free-model' }],
+    modelRows: () => [{ id: 'mimo-v2.6-flash-free', created: 1, owned_by: 'route-models' }],
     onTrace,
   })
   openServers.push(server)
@@ -1353,7 +1353,7 @@ await checkAsync('synthesized assistant rows carry a complete model source (issu
     { role: 'tool', content: 'data', tool_call_id: 'call_1' },
   ] }, false, 'deepseek-ai/deepseek-v4.1-flash')
   const assistant = rows.find(row => row.role === 'assistant')
-  assert.deepEqual(assistant?.source, { kind: 'model', provider: 'our-free-model', model: 'deepseek-ai/deepseek-v4.1-flash' })
+  assert.deepEqual(assistant?.source, { kind: 'model', provider: 'route-models', model: 'deepseek-ai/deepseek-v4.1-flash' })
   assert.equal(rows.find(row => row.role === 'user')?.source, undefined, 'a user row carries no source')
   const tool = rows.find(row => row.role === 'tool')
   assert.deepEqual(tool?.source, { kind: 'tool', callId: 'call_1' }, 'a tool row keeps its tool source')

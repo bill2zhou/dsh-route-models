@@ -2,12 +2,11 @@
  * The disclaimer copy both surfaces show: the plugin's settings page and the
  * standalone/desktop console.
  *
- * The product carries no WorkBuddy and no Huawei Cloud channel. Those two are
- * excluded mechanically (`src/magpie-policy.js`, and the aggregate registry
- * through it), but an exclusion with no explanation leaves a user wondering
- * whether the channel is broken. This copy answers the two questions that
- * matter instead: those channels are not part of what this build offers, and
- * anything a user does with a channel is their own responsibility.
+ * The product carries no WorkBuddy and no Huawei Cloud channel. An exclusion
+ * with no explanation leaves a user wondering whether the channel is broken, so
+ * this copy answers the two questions that matter instead: those channels are
+ * not part of what this build offers, and anything a user does with a channel is
+ * their own responsibility.
  *
  * The copy is data, not markup: each surface renders it in its own idiom, so
  * there is exactly one place to change what the product says. It is deliberately

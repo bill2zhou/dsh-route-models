@@ -1,14 +1,24 @@
 # vendor/channel-pack — 上游免费渠道包的来源与再构建
 
 本目录基于 [Jet（iJetLi）](https://gitee.com/iJetLi) 发布的 MIT 渠道实现
-吸收并裁剪的渠道实现，由 `dsh-our-free-model` 的 Host 半身在独立 fiber 上挂载，
-提供 LobsterAI、Qoder、Qoder 中国版、TRAE、Cline、Loomy、Raccoon、MiniMax Code、ZCode、Gemini 十个账号渠道的
+吸收并裁剪的渠道实现，由 `dsh-route-models` 的 Host 半身在独立 fiber 上挂载，
+提供 CodeArts、WorkBuddy 国内版、WorkBuddy 国际版、LobsterAI、Qoder、Qoder 中国版、TRAE、
+Cline、Loomy、Raccoon、MiniMax Code、ZCode、Gemini 十三个账号渠道的
 登录流程、账号池、积分领取、模型黑名单与本地 OpenAI 网关可用。OFM 挂载时关闭上游 OpenCode 账号接入，原有匿名免费车道保持独立。
 目录名与内部标识符在本插件的再构建中统一改为 channel-pack；出处与许可证不变。
 
 - 上游作者：Jet（https://gitee.com/iJetLi）
 - 吸收的提交：`345f0a07b22713c0ae189ca7d8b97ec4f64626c6`（2026-10-06）
 - 许可证：MIT（见 `LICENSE`，与上游一致）
+
+### 关于本目录中 `pack.js` 与 `src/` 的版本差异
+
+当前 `pack.js` 取自社区同源再构建（[XDTrees/dsh-xdpool](https://github.com/XDTrees/dsh-xdpool)，
+MIT）的 `vendor/channel-pack/pack.js`，它包含上游的十三个渠道（多出 CodeArts、
+WorkBuddy 国内版、WorkBuddy 国际版）。本目录的 `src/` 仍是上述提交的十渠道源码，
+因此 `node scripts/build-channel-pack.mjs` 现在会重建出**不含**这三个渠道的包。
+要重新从源码构建并保留三渠道，请先把上游对应源码（`codearts-*`、`buddy-*`、
+`workbuddy-*`）补进 `src/` 再打包。
 
 ## 目录内容
 
@@ -47,5 +57,5 @@ OFM_ESBUILD_DIR=/tmp/ofm-channel-build npm run channel-pack
 - `src/credential-expiry.ts` 与 `src/credit-expiry-window.ts` 提供渠道间共享的纯函数。积分临时窗口默认 15 天，可通过 `DSH_CREDIT_EXPIRING_WINDOW_DAYS` 显式设置为非负天数。
 
 本目录**不含**上游的浏览器半身（`plugin-src/client`）与其设置页——
-界面由 `dsh-our-free-model` 自己的三页界面取代，渠道操作经上游的
+界面由 `dsh-route-models` 自己的三页界面取代，渠道操作经上游的
 `/api/channel-pack` RPC 完成（`connection.rpc.call('/api', 'channel-pack', { method, payload })`）。

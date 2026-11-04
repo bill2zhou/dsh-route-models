@@ -85,7 +85,7 @@ const refusingBase = `http://127.0.0.1:${refusingServer.address().port}`
 const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ofm-live-'))
 process.env.DSH_HOME = home
 const forwardPort = await freePort()
-const dataDir = path.join(home, 'our-free-model')
+const dataDir = path.join(home, 'route-models')
 fs.mkdirSync(dataDir, { recursive: true })
 fs.writeFileSync(path.join(dataDir, 'settings.json'), JSON.stringify({
   enabled: true,
@@ -107,8 +107,8 @@ const ctx = fakeContext({ inject, mounted: ['llm', 'webServer', 'timer', 'connec
 apply(ctx, {})
 const api = () => routes.find(route => route.kind === 'prefix')?.handler
 await until(() => api() !== undefined, { what: 'the settings API route', timeoutMs: 5000 })
-const get = url => callRoute(api(), 'GET', `/api/our-free-model${url}`)
-const post = (url, body) => callRoute(api(), 'POST', `/api/our-free-model${url}`, body)
+const get = url => callRoute(api(), 'GET', `/api/route-models${url}`)
+const post = (url, body) => callRoute(api(), 'POST', `/api/route-models${url}`, body)
 const summary = () => get('/summary')
 
 console.log('\n=== 1. boot against the live gateway ===')

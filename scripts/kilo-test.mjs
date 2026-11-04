@@ -154,7 +154,7 @@ await until(() => api() !== undefined, { what: 'the settings API route', timeout
 // summary until the Kilo roster has landed.
 let summaryJson
 await until(async () => {
-  const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+  const summary = await callRoute(api(), 'GET', '/api/route-models/summary')
   summaryJson = summary.json
   return (summaryJson.catalog ?? []).some(entry => entry.channel === 'kilo')
 }, { what: 'the Kilo roster to join the catalog', timeoutMs: 10000 })
@@ -180,7 +180,7 @@ check('the default effort is the menu top, as on the EAC lane',
 let persistedRows = []
 await until(() => {
   try {
-    persistedRows = JSON.parse(fs.readFileSync(path.join(home, 'our-free-model', 'catalog.json'), 'utf8')).kiloRows ?? []
+    persistedRows = JSON.parse(fs.readFileSync(path.join(home, 'route-models', 'catalog.json'), 'utf8')).kiloRows ?? []
   } catch { persistedRows = [] }
   return persistedRows.length > 0
 }, { what: 'the persisted roster to flush', timeoutMs: 5000 })
@@ -248,12 +248,12 @@ check('with the message naming the lane, not a credential store',
 const expectedIds = kiloRows.map(row => row.id)
 // Discovery and picker rows omit the internal channel tag.
 const kiloIds = rows => rows.filter(row => row.channel === 'kilo' || expectedIds.includes(row.id)).map(row => row.id)
-const catalogFile = path.join(home, 'our-free-model', 'catalog.json')
+const catalogFile = path.join(home, 'route-models', 'catalog.json')
 const cachedKiloIds = () => JSON.parse(fs.readFileSync(catalogFile, 'utf8')).kiloRows.map(row => row.id)
 const waitForCache = expected => until(() => {
   try { return JSON.stringify(cachedKiloIds()) === JSON.stringify(expected) } catch { return false }
 }, { what: `Kilo cache to contain ${expected.length} models`, timeoutMs: 5000 })
-const visibleKiloIds = async () => kiloIds((await callRoute(api(), 'GET', '/api/our-free-model/summary')).json.catalog)
+const visibleKiloIds = async () => kiloIds((await callRoute(api(), 'GET', '/api/route-models/summary')).json.catalog)
 const refreshKiloIds = async () => kiloIds(await ctx.__captured.discovery())
 const stopContext = async context => {
   for (const stop of context.__disposers.slice().reverse()) await stop()

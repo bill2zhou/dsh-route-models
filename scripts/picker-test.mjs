@@ -88,16 +88,16 @@ await until(() => api() !== undefined, { what: 'the settings API route' })
 // Automatic probing is disabled by owner policy. This suite is about picker
 // reads, so it waits for the listing, then drives the one probe round it needs
 // through the manual endpoint.
-await callRoute(api(), 'POST', '/api/our-free-model/refresh')
+await callRoute(api(), 'POST', '/api/route-models/refresh')
 check('startup and a listing refresh spend no probe requests', stub.requests.length, 0)
-await callRoute(api(), 'POST', '/api/our-free-model/reprobe')
+await callRoute(api(), 'POST', '/api/route-models/reprobe')
 
 const ids = models => models.map(model => model.id)
 const advertised = async route => ids(await adapter.listModels(route))
 
 // Every probe in the round has to have landed before the verdicts mean anything.
 await until(() => {
-  const store = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'availability.json'), 'utf8'))
+  const store = JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'availability.json'), 'utf8'))
   return Object.keys(store.results ?? {}).length >= LISTING.length && store.at > 0
 }, { what: 'a full probe round' }).catch(error => {
   console.log(`FAIL ${error.message}\nlogs: ${ctx.__logs.join(' | ')}\nrequests seen by the stub: ${stub.requests.length}`)
@@ -118,7 +118,7 @@ check('region-gated models move to their own route', await advertised(ROUTE_REGI
 // (no probe history until the boot round lands) and of a model the listing just
 // added. It has to read as "not knowing", which is not the same as "refused" —
 // and reading it as a verdict used to throw on the spot.
-const verdicts = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'availability.json'), 'utf8')).results
+const verdicts = JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'availability.json'), 'utf8')).results
 check('the probe did leave a verdict for every model it saw', Object.keys(verdicts).length, LISTING.length)
 
 // Grow the roster while a refresh round is in flight: `union-alpha` enters the
@@ -146,16 +146,16 @@ await until(async () => {
 check('no read throws while a verdict is missing', midRoundError?.message ?? 'none', 'none')
 check('and the new model is advertised in that window', midRoundModels !== null, true)
 check('and the picker keeps the models that do have verdicts', (await advertised(ROUTE_MAIN)).includes('mimo-v2.6-flash-free'), true)
-const midRoundRow = (await callRoute(api(), 'GET', '/api/our-free-model/summary')).json.catalog
+const midRoundRow = (await callRoute(api(), 'GET', '/api/route-models/summary')).json.catalog
   .find(row => row.id === 'union-alpha')
 check('the settings page says it has not been probed', midRoundRow?.availability, 'unknown')
 check('rather than a verdict it does not have', midRoundRow?.detail ?? '', '')
 gate.resolve()
 await round
 // Discovery refreshed the listing only; probe the new row explicitly.
-await callRoute(api(), 'POST', '/api/our-free-model/reprobe')
+await callRoute(api(), 'POST', '/api/route-models/reprobe')
 check('once the round lands it carries a verdict',
-  (await callRoute(api(), 'GET', '/api/our-free-model/summary')).json.catalog
+  (await callRoute(api(), 'GET', '/api/route-models/summary')).json.catalog
     .find(row => row.id === 'union-alpha')?.availability, 'available')
 stub.api.setListing(LISTING)
 
@@ -163,7 +163,7 @@ const discovered = ids(await ctx.__captured.discovery())
 check('model discovery offers what the picker advertises, nothing more',
   discovered.sort(), [...await advertised(ROUTE_MAIN), ...await advertised(ROUTE_REGION)].sort())
 
-const summary = await callRoute(api(), 'GET', '/api/our-free-model/summary')
+const summary = await callRoute(api(), 'GET', '/api/route-models/summary')
 const rowOf = id => summary.json.catalog.find(row => row.id === id)
 check('the roster still lists the hidden model, with its verdict', [rowOf('jev-1.13-free').route, rowOf('jev-1.13-free').availability], [null, 'unavailable'])
 check('the refusal is on record for the user to read', /No such model/.test(rowOf('jev-1.13-free').detail), true)
@@ -202,38 +202,38 @@ check('a turn on it fails as an upstream error, not as an unresolvable model', h
 check('with the gateway message attached', /unavailable/i.test(hiddenFinish?.failure?.message ?? ''), true)
 
 // Turning the region group off hides those models rather than listing them as broken.
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { exposeRegionModels: false })
+await callRoute(api(), 'POST', '/api/route-models/settings', { exposeRegionModels: false })
 check('withhold-region hides them from the region route', await advertised(ROUTE_REGION), [])
 check('and from the main route too', (await advertised(ROUTE_MAIN)).includes('muse-spark-1.3-contributor-free'), false)
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { exposeRegionModels: true })
+await callRoute(api(), 'POST', '/api/route-models/settings', { exposeRegionModels: true })
 
 // The round where the lane itself is down: every model reads as refused.
 stub.api.refuseAll = true
-await callRoute(api(), 'POST', '/api/our-free-model/reprobe')
+await callRoute(api(), 'POST', '/api/route-models/reprobe')
 check('a lane-wide failure never empties the picker', (await advertised(ROUTE_MAIN)).length > 0, true)
 check('it keeps the refused models rather than dropping them', (await advertised(ROUTE_MAIN)).includes('deepseek-v4-flash-free'), true)
 check('and says so in the log', ctx.__logs.some(line => line.includes('refused all')), true)
 const visibleId = 'space-bunny-free'
 const beforeVisibilityEvents = ctx.__captured.events.filter(event => event === 'emit:llm/adapters-updated').length
-const hiddenSave = await callRoute(api(), 'POST', '/api/our-free-model/settings', { hiddenModelIds: [visibleId, visibleId], hideEacModels: true })
+const hiddenSave = await callRoute(api(), 'POST', '/api/route-models/settings', { hiddenModelIds: [visibleId, visibleId], hideEacModels: true })
 check('picker visibility settings save successfully', hiddenSave.status, 200)
-check('hidden ids are canonical and persisted', JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8')).hiddenModelIds, [visibleId])
+check('hidden ids are canonical and persisted', JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'settings.json'), 'utf8')).hiddenModelIds, [visibleId])
 check('refusedAll never restores an explicitly hidden model', (await advertised(ROUTE_MAIN)).includes(visibleId), false)
 check('visibility changes broadcast topology invalidation',
   ctx.__captured.events.filter(event => event === 'emit:llm/adapters-updated').length > beforeVisibilityEvents, true)
-const hiddenSummary = (await callRoute(api(), 'GET', '/api/our-free-model/summary')).json
+const hiddenSummary = (await callRoute(api(), 'GET', '/api/route-models/summary')).json
 check('management keeps hidden rows with a recovery marker', hiddenSummary.catalog.find(row => row.id === visibleId)?.hiddenByUser, true)
 check('a hidden id still resolves for history', (await adapter.resolveModel(ROUTE_MAIN, visibleId)).id, visibleId)
 for (const patch of [null, [], { hiddenModelIds: [null] }, { hiddenModelIds: [''] }, { hideEacModels: 1 }, { hideFreeModels: 'true' }, { enabled: false, hiddenModelIds: [3] }]) {
-  check('invalid visibility patch is refused atomically', (await callRoute(api(), 'POST', '/api/our-free-model/settings', patch)).status, 400)
+  check('invalid visibility patch is refused atomically', (await callRoute(api(), 'POST', '/api/route-models/settings', patch)).status, 400)
 }
-check('invalid patch does not change existing settings', (await callRoute(api(), 'GET', '/api/our-free-model/summary')).json.settings.enabled, true)
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { hideFreeModels: true })
+check('invalid patch does not change existing settings', (await callRoute(api(), 'GET', '/api/route-models/summary')).json.settings.enabled, true)
+await callRoute(api(), 'POST', '/api/route-models/settings', { hideFreeModels: true })
 check('whole free group remains hidden during lane-wide refusal', await advertised(ROUTE_MAIN), [])
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { hiddenModelIds: [], hideFreeModels: false, hideEacModels: false })
+await callRoute(api(), 'POST', '/api/route-models/settings', { hiddenModelIds: [], hideFreeModels: false, hideEacModels: false })
 
 stub.api.refuseAll = false
-await callRoute(api(), 'POST', '/api/our-free-model/reprobe')
+await callRoute(api(), 'POST', '/api/route-models/reprobe')
 check('the next honest round hides them again', (await advertised(ROUTE_MAIN)).includes('deepseek-v4-flash-free'), false)
 
 // ── the settings boundary ────────────────────────────────────────────────────
@@ -242,13 +242,13 @@ check('the next honest round hides them again', (await advertised(ROUTE_MAIN)).i
 // is NaN, and a timer armed with NaN fires once a millisecond — a whole catalog
 // probe per second against a lane the plugin exists not to hammer; the same 0 on
 // the output ceiling is `min(capacity, 0)`, i.e. every turn cut to the floor.
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { probeIntervalMinutes: 22, feedPollMinutes: 44, defaultMaxTokens: 20000 })
+await callRoute(api(), 'POST', '/api/route-models/settings', { probeIntervalMinutes: 22, feedPollMinutes: 44, defaultMaxTokens: 20000 })
 check('a real value is taken as given', readSettings(), [22, 44, 20000])
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { probeIntervalMinutes: 'abc', feedPollMinutes: 0, defaultMaxTokens: 0 })
+await callRoute(api(), 'POST', '/api/route-models/settings', { probeIntervalMinutes: 'abc', feedPollMinutes: 0, defaultMaxTokens: 0 })
 check('a cleared or nonsense field falls back to what was there, not to an extreme', readSettings(), [22, 44, 20000])
 
 function readSettings() {
-  const row = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8'))
+  const row = JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'settings.json'), 'utf8'))
   return [row.probeIntervalMinutes, row.feedPollMinutes, row.defaultMaxTokens]
 }
 
@@ -256,22 +256,22 @@ function readSettings() {
 // in settings.json beside every other setting; nothing downstream ever compares
 // more than a version id, so the write is capped on the way in rather than
 // letting a caller pick the file's shape.
-await callRoute(api(), 'POST', `/api/our-free-model/announcement/ack?version=${'v'.repeat(4096)}`)
-const ackedVersion = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8')).announcementAck
+await callRoute(api(), 'POST', `/api/route-models/announcement/ack?version=${'v'.repeat(4096)}`)
+const ackedVersion = JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'settings.json'), 'utf8')).announcementAck
 check('an oversized ack version is capped before it reaches disk', typeof ackedVersion === 'string' && ackedVersion.length <= 64, true)
 
 // The forward listener spends this machine's free lane, so it binds loopback and
 // nothing else: a routable address in the settings file would put the whole
 // subnet's traffic through the user's egress on the strength of one string.
-const refusedBind = await callRoute(api(), 'POST', '/api/our-free-model/settings', { forward: { enabled: true, host: '0.0.0.0', port: forwardPort } })
+const refusedBind = await callRoute(api(), 'POST', '/api/route-models/settings', { forward: { enabled: true, host: '0.0.0.0', port: forwardPort } })
 check('a routable forward bind is refused outright', refusedBind.status, 400)
 check('and says which address is acceptable', /loopback/i.test(refusedBind.json?.error ?? ''), true)
-check('nothing was written for it', JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8')).forward?.host, '127.0.0.1')
+check('nothing was written for it', JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'settings.json'), 'utf8')).forward?.host, '127.0.0.1')
 
-const opened = await callRoute(api(), 'POST', '/api/our-free-model/settings', { forward: { enabled: true, host: '127.0.0.1', port: forwardPort } })
+const opened = await callRoute(api(), 'POST', '/api/route-models/settings', { forward: { enabled: true, host: '127.0.0.1', port: forwardPort } })
 check('a loopback bind still works', opened.json?.settings?.forward?.running, true)
 const listed = await fetch(`http://127.0.0.1:${forwardPort}/v1/models`, {
-  headers: { authorization: `Bearer ${JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8')).forwardKey}` },
+  headers: { authorization: `Bearer ${JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'settings.json'), 'utf8')).forwardKey}` },
 })
 check('and the listener answers its own model list', listed.status, 200)
 // The listing already hides a model the gateway names but will not route. The
@@ -282,7 +282,7 @@ const jevBefore = unroutedProbes()
 const unrouted = await fetch(`http://127.0.0.1:${forwardPort}/v1/chat/completions`, {
   method: 'POST',
   headers: {
-    authorization: `Bearer ${JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8')).forwardKey}`,
+    authorization: `Bearer ${JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'settings.json'), 'utf8')).forwardKey}`,
     'content-type': 'application/json',
   },
   body: JSON.stringify({ model: 'jev-1.13-free', messages: [{ role: 'user', content: 'hi' }] }),
@@ -290,16 +290,16 @@ const unrouted = await fetch(`http://127.0.0.1:${forwardPort}/v1/chat/completion
 check('the forward port refuses a model the picker hides', unrouted.status, 404)
 check('and says so in the answer', /not found/.test(await unrouted.text()), true)
 check('without dialling upstream for a verdict it already has', unroutedProbes(), jevBefore)
-await callRoute(api(), 'POST', '/api/our-free-model/settings', { forward: { enabled: false, host: '127.0.0.1', port: forwardPort } })
+await callRoute(api(), 'POST', '/api/route-models/settings', { forward: { enabled: false, host: '127.0.0.1', port: forwardPort } })
 
 // ── the fence as the mounted route actually applies it ───────────────────────
 // `trust-test.mjs` checks the predicate. These check that the registered handler
 // consults it, on the real request path, in both of its two layers — which is the
 // part that can silently stop happening.
-const hostile = await callRoute(api(), 'GET', '/api/our-free-model/summary', undefined,
+const hostile = await callRoute(api(), 'GET', '/api/route-models/summary', undefined,
   { authorization: 'internal-api', host: 'rebind.example:3000' })
 check('a request naming a host that is not this machine is refused at the route', hostile.status, 403)
-check('while the same route answers the loopback one', (await callRoute(api(), 'GET', '/api/our-free-model/summary')).status, 200)
+check('while the same route answers the loopback one', (await callRoute(api(), 'GET', '/api/route-models/summary')).status, 200)
 check('the refusal log identifies the structural Host fence',
   ctx.__logs.some(line => line.includes('settings API admission rejected status=403 source=structural reason=host-not-loopback')), true)
 
@@ -307,10 +307,10 @@ check('the refusal log identifies the structural Host fence',
 // custom-protocol Referer. Exercise both registered surfaces, not only trust.js.
 const desktopHeaders = { host: '127.0.0.1:3000', referer: 'dsh-app://app/' }
 check('the settings route accepts the desktop relay before connection appears',
-  (await callRoute(api(), 'GET', '/api/our-free-model/summary', undefined, desktopHeaders)).status, 200)
-const events = routes.find(route => route.kind === 'exact' && route.path === '/api/our-free-model/events')?.handler
+  (await callRoute(api(), 'GET', '/api/route-models/summary', undefined, desktopHeaders)).status, 200)
+const events = routes.find(route => route.kind === 'exact' && route.path === '/api/route-models/events')?.handler
 if (events === undefined) throw new Error('events route was not registered')
-const eventReq = Object.assign(new EventEmitter(), new FakeRequest('GET', '/api/our-free-model/events', undefined, desktopHeaders))
+const eventReq = Object.assign(new EventEmitter(), new FakeRequest('GET', '/api/route-models/events', undefined, desktopHeaders))
 let eventStatus = 0
 let eventBody = ''
 const eventRes = Object.assign(new EventEmitter(), {
@@ -326,23 +326,23 @@ eventRes.emit('close')
 ctx.__services.connection.admit = () => ({ rejection: 401 })
 ctx.__mountService('connection')
 check('and once the composition publishes its own admission, that is what decides',
-  (await callRoute(api(), 'GET', '/api/our-free-model/summary')).status, 401)
+  (await callRoute(api(), 'GET', '/api/route-models/summary')).status, 401)
 for (const status of [401, 403]) {
   ctx.__services.connection.admit = () => ({ rejection: status })
   check(`desktop JSON requests cannot bypass Host ${status}`,
-    (await callRoute(api(), 'GET', '/api/our-free-model/summary', undefined, desktopHeaders)).status, status)
+    (await callRoute(api(), 'GET', '/api/route-models/summary', undefined, desktopHeaders)).status, status)
   check(`desktop events cannot bypass Host ${status}`,
-    (await callRoute(events, 'GET', '/api/our-free-model/events', undefined, desktopHeaders)).status, status)
+    (await callRoute(events, 'GET', '/api/route-models/events', undefined, desktopHeaders)).status, status)
 }
 ctx.__services.connection.admit = () => { throw new Error('exception-secret') }
 const sensitiveHeaders = {
   ...desktopHeaders, cookie: 'cookie-secret', authorization: 'Bearer auth-secret',
 }
-const unavailable = await callRoute(api(), 'GET', '/api/our-free-model/summary?token=query-secret', undefined, sensitiveHeaders)
+const unavailable = await callRoute(api(), 'GET', '/api/route-models/summary?token=query-secret', undefined, sensitiveHeaders)
 check('a failed Host admission returns 503 rather than bypassing authentication', unavailable.status, 503)
 check('the JSON error does not mislabel a Host failure as forbidden', unavailable.json.error, 'admission unavailable')
 check('events report the same Host failure',
-  (await callRoute(events, 'GET', '/api/our-free-model/events?token=query-secret', undefined, sensitiveHeaders)).status, 503)
+  (await callRoute(events, 'GET', '/api/route-models/events?token=query-secret', undefined, sensitiveHeaders)).status, 503)
 check('both route logs identify the Host admission failure',
   ['settings API', 'events'].every(surface => ctx.__logs.some(line =>
     line.includes(`${surface} admission rejected status=503 source=connection reason=admission-error`))), true)
@@ -360,9 +360,9 @@ ctx.__services.connection.admit = () => undefined
 const probesOf = id => stub.requests.filter(row => row.body?.model === id).length
 holdProbe = { model: 'space-bunny-free', ...Promise.withResolvers() }
 const before = probesOf('mimo-v2.6-flash-free')
-const first = callRoute(api(), 'POST', '/api/our-free-model/reprobe')
+const first = callRoute(api(), 'POST', '/api/route-models/reprobe')
 await until(() => probesOf('mimo-v2.6-flash-free') > before, { what: 'the first round to be in flight' })
-const second = callRoute(api(), 'POST', '/api/our-free-model/reprobe')
+const second = callRoute(api(), 'POST', '/api/route-models/reprobe')
 holdProbe.resolve()
 await Promise.all([first, second])
 check('a second trigger joins the round in flight rather than starting another',

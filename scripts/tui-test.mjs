@@ -26,7 +26,7 @@ const stub = await stubUpstream({ listing: ['mimo-v2.6-flash-free', 'space-bunny
 process.env.OUR_FREE_MODEL_BASE = stub.base
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'ofm-tui-'))
 process.env.DSH_HOME = scratch
-fs.mkdirSync(path.join(scratch, 'our-free-model'), { recursive: true })
+fs.mkdirSync(path.join(scratch, 'route-models'), { recursive: true })
 // A headless user has no settings page to click, so the file the plugin owns is
 // the only way in — write the forward port on before the plugin boots. The port
 // is taken from the ephemeral range rather than written down here: two suites
@@ -35,14 +35,14 @@ fs.mkdirSync(path.join(scratch, 'our-free-model'), { recursive: true })
 // process owned — which answered nothing, and the suite hung until the runner
 // killed it with nothing printed to say why.
 const forwardPort = await freePort()
-fs.writeFileSync(path.join(scratch, 'our-free-model', 'settings.json'), JSON.stringify({
+fs.writeFileSync(path.join(scratch, 'route-models', 'settings.json'), JSON.stringify({
   version: 1, enabled: true, forward: { enabled: true, host: '127.0.0.1', port: forwardPort, lan: { enabled: true, port: 0 } },
 }), { mode: 0o600 })
 // The sealed roster persists under catalog.json. This composition has no
 // profileContext, so the host gate refuses the lane; the refusal has to say so
 // in the log, and it must not wipe what a desktop session on this install
 // persisted — that wipe in silence is what made "EAC 渠道不显示" undiscoverable.
-fs.writeFileSync(path.join(scratch, 'our-free-model', 'catalog.json'), JSON.stringify({
+fs.writeFileSync(path.join(scratch, 'route-models', 'catalog.json'), JSON.stringify({
   version: 1, at: 0, entries: [], sealIds: ['deepseek-ai/deepseek-v4.1-flash'],
 }), { mode: 0o600 })
 
@@ -99,17 +99,17 @@ check('it waits for services rather than running without them',
 ctx.__mountService('webServer')
 await until(() => ctx.__captured.serverRoutes.length >= 2, { what: 'the dashboard fiber to run once the server exists' })
 check('the settings API mounts when the service does', ctx.__captured.serverRoutes.map(route => route.path).sort(),
-  ['/api/our-free-model', '/api/our-free-model/events'])
+  ['/api/route-models', '/api/route-models/events'])
 
 await until(() => ctx.__logs.some(line => line.includes('the sealed lane is not available in this composition')), { what: 'the boot listing and the sealed-lane gate refusal to be logged' })
-check('the host-gate refusal is logged, not silent', ctx.__logs.some(line => line.startsWith('warn our-free-model: the sealed lane is not available')), true)
-const persisted = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'catalog.json'), 'utf8'))
+check('the host-gate refusal is logged, not silent', ctx.__logs.some(line => line.startsWith('warn route-models: the sealed lane is not available')), true)
+const persisted = JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'catalog.json'), 'utf8'))
 check('and the refusal keeps the roster a desktop session persisted', persisted.sealIds, ['deepseek-ai/deepseek-v4.1-flash'])
 
 // Probing is manual now, so this headless composition drives the one round the
 // picker assertions below need instead of waiting for an automatic boot probe.
 const apiRoute = ctx.__captured.serverRoutes.find(route => route.kind === 'prefix')
-await callRoute(apiRoute.handler, 'POST', '/api/our-free-model/reprobe')
+await callRoute(apiRoute.handler, 'POST', '/api/route-models/reprobe')
 await until(async () => (await adapter.listModels(ROUTE_MAIN)).length === 2, { what: 'the manual reprobe verdicts' })
 
 const models = await adapter.listModels(ROUTE_MAIN)
@@ -131,7 +131,7 @@ check('and finishes', chunks.find(chunk => chunk.type === 'finish')?.reason, { k
 
 const forward = await fetch(`http://127.0.0.1:${forwardPort}/v1/models`, { headers: { authorization: 'Bearer local-test-key' } })
 check('the forward listener came up without a web server', forward.status, 401)
-const key = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8')).forwardKey
+const key = JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'settings.json'), 'utf8')).forwardKey
 const rows = await (await fetch(`http://127.0.0.1:${forwardPort}/v1/models`, { headers: { authorization: `Bearer ${key}` } })).json()
 check('and lists the usable models with the real key', rows.data.map(row => row.id).sort(), ['mimo-v2.6-flash-free', 'space-bunny-free'])
 const answered = await (await fetch(`http://127.0.0.1:${forwardPort}/v1/chat/completions`, {
@@ -142,8 +142,8 @@ const answered = await (await fetch(`http://127.0.0.1:${forwardPort}/v1/chat/com
 check('a non-streaming call answers', String(answered.choices?.[0]?.message?.content ?? ''), 'hello from the tui')
 check('usage comes back in the OpenAI spelling the caller reads', [answered.usage?.prompt_tokens, answered.usage?.completion_tokens], [11, 7])
 const requestTraces = () => ctx.__logs
-  .filter(line => line.startsWith('info our-free-model request: '))
-  .map(line => JSON.parse(line.slice('info our-free-model request: '.length)))
+  .filter(line => line.startsWith('info route-models request: '))
+  .map(line => JSON.parse(line.slice('info route-models request: '.length)))
 await until(() => requestTraces().some(event => event.stage === 'finished'), { what: 'forward diagnostics to reach the host logger' })
 check('forward lifecycle events reach the host info logger',
   requestTraces().map(event => event.stage), ['received', 'body_received', 'dispatch', 'generation_finished', 'finished'])
@@ -178,18 +178,18 @@ check('…and sends its result, keyed to the call it answers',
 // unless it says so, and then a listener of its own. The machine's key must not
 // work there, and the liveness probe that answers keyless on loopback must not
 // answer on an address the whole subnet can reach.
-const written = JSON.parse(fs.readFileSync(path.join(scratch, 'our-free-model', 'settings.json'), 'utf8'))
+const written = JSON.parse(fs.readFileSync(path.join(scratch, 'route-models', 'settings.json'), 'utf8'))
 const lanPort = written.forward?.lan?.port ?? 0
 check('the LAN relay came up and wrote back the port it settled on', lanPort > 0, true)
 // The address to hand out is re-read from this machine's interfaces on every
 // ask — the panel polls it while the relay is on — so a machine that moved
 // networks is not told to dial where it used to be.
-const lanApi = ctx.__captured.serverRoutes.find(route => route.path === '/api/our-free-model')?.handler
-const lanRead = await callRoute(lanApi, 'GET', '/api/our-free-model/forward/lan/addresses')
+const lanApi = ctx.__captured.serverRoutes.find(route => route.path === '/api/route-models')?.handler
+const lanRead = await callRoute(lanApi, 'GET', '/api/route-models/forward/lan/addresses')
 check('the panel can re-read the LAN addresses while the relay is up',
   [lanRead.status, Array.isArray(lanRead.json?.addresses)], [200, true])
 check('and the settings snapshot carries the same list',
-  Array.isArray((await callRoute(lanApi, 'GET', '/api/our-free-model/summary')).json?.settings?.forward?.lan?.addresses), true)
+  Array.isArray((await callRoute(lanApi, 'GET', '/api/route-models/summary')).json?.settings?.forward?.lan?.addresses), true)
 const lanKey = written.forwardLanKey
 check('with a key of its own, minted apart from the local one', typeof lanKey === 'string' && lanKey !== '' && lanKey !== key, true)
 const lanModels = await fetch(`http://127.0.0.1:${lanPort}/v1/models`, { headers: { authorization: `Bearer ${lanKey}` } })
