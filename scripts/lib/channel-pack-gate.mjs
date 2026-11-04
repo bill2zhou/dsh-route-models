@@ -28,6 +28,14 @@ export const PACK_MARKERS = [
   'toolCalls.length === 0) continue',
   'createChannelFetch',
   'ChannelNetworkError',
+  // The three channels `src/` no longer carries (see NOTICE.md): CodeArts and
+  // the two WorkBuddy variants live only in the shipped bundle. Rebuilding from
+  // this `src/` silently dropped all three once — the settings page kept their
+  // cards and every sign-in answered `unsupported provider`. Their markers make
+  // that rebuild refuse instead.
+  'CodeArts',
+  'id: "buddy"',
+  'id: "workbuddy"',
 ]
 
 /** Occurrences of every marker in `text`. */
