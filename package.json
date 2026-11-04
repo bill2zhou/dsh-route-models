@@ -13,6 +13,7 @@
     "url": "https://github.com/Ebony-Vinyl/dsh-route-models/issues"
   },
   "main": "./index.js",
+  "icon": "icon.svg",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
